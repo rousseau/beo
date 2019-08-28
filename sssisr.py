@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Aug 12 15:00:03 2019
-
-@author: rousseau
-"""
-
 # SSSISR : self-supervised single-image super resolution
 
 import os
