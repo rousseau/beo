@@ -9,7 +9,7 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Input Image', type=str, required=True) 
   parser.add_argument('-m', '--mask', help='Input Mask', type=str, required=False)  
   parser.add_argument('-o', '--output', help='Output Image', type=str, required=True)
- 
+  parser.add_argument('-r', '--radius', help='Mask dilation radius', type=int, default=0, required=False)
   args = parser.parse_args()
 
   #Read input image
@@ -18,6 +18,10 @@ if __name__ == '__main__':
 
   #Read mask image
   mask = sitk.ReadImage( args.mask )
+
+  #Dilate mask if needed
+  if args.radius > 0:
+    mask = sitk.BinaryDilate(mask, args.radius)
 
   #Define ROI from mask values
   nda = sitk.GetArrayFromImage(mask)

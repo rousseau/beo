@@ -158,17 +158,16 @@ if __name__ == '__main__':
   print(K.image_data_format()) 
   
   #Sauver le modele
-  #Mettre les hyperparametres en arguments
   #Hyper-parameters
   patch_size = args.patch_size # 50 may be the max size to get occipital brain boundaries in patch center
   max_patches = args.max_patch
   windowing = args.windowing 
-  batch_size = args.batch_size #Chi-Hieu : 16
+  batch_size = args.batch_size #CHP : 16
   n_filters = args.filters
   kernel_size = args.kernel_size
   n_layers = args.layers
   use_attention = 0
-  learning_rate = args.learning_rate # Chi-Hieu : 0.0001
+  learning_rate = args.learning_rate # CHP : 0.0001
   loss = 'mae'
   epochs = args.epochs
   self_ensemble = 1
