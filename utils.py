@@ -68,3 +68,29 @@ def array_normalization(X,M=None,norm=0):
     X = (X - minX)/(maxX-minX)
 
   return X
+
+#Windowing to avoid boundary effect when applying convolutions
+#nd_windowing function from https://stackoverflow.com/questions/27345861/extending-1d-function-across-3-dimensions-for-data-windowing
+def nd_windowing(data, filter_function):
+  """
+  Performs an in-place windowing on N-dimensional spatial-domain data.
+  This is done to mitigate boundary effects in the FFT.
+  
+  Parameters
+  ----------
+  data : ndarray
+         Input data to be windowed, modified in place.
+  filter_function : 1D window generation function
+         Function should accept one argument: the window length.
+         Example: scipy.signal.hamming
+  """
+  
+  for axis, axis_size in enumerate(data.shape):
+    # set up shape for numpy broadcasting
+    filter_shape = [1, ] * data.ndim
+    filter_shape[axis] = axis_size
+    window = filter_function(axis_size).reshape(filter_shape)
+    # scale the window intensities to maintain image intensity
+    #np.power(window, (1.0/data.ndim), out=window)  
+    data *= window
+  return data    
