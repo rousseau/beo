@@ -1,131 +1,56 @@
 from dataset import get_ixi_data
+from model_zoo import ResNet3D, AutoEncoder3D
+import keras.backend as K
+from keras.optimizers import Adam
+import numpy as np
+import nibabel
+from utils import array_normalization
+
+print(K.image_data_format())
 
 patch_size = 40
 n_patches = 1000
 (T1,T2,PD) = get_ixi_data(patch_size = patch_size, n_patches = n_patches)
 
-#from utils import load_images, nbimages_to_4darrays, array_normalization
-#from tqdm import tqdm
-#import keras.backend as K
-#import numpy as np
-#from sklearn.feature_extraction.image import extract_patches
-#from sklearn.utils import check_random_state
-#from scipy import signal
-#import matplotlib.pyplot as plt
-#
-#print(K.image_data_format())
-##DATA FORMAT : channel last
-#
-#ixi_path = '/home/rousseau/Exp/IXIsmall/'
-#T1s = nbimages_to_4darrays(load_images(ixi_path, key='*T1.nii.gz', loader='nb',verbose=1))
-#T2s = nbimages_to_4darrays(load_images(ixi_path, key='*T2.nii.gz', loader='nb',verbose=1))
-#PDs = nbimages_to_4darrays(load_images(ixi_path, key='*PD.nii.gz', loader='nb',verbose=1))
-#masks = nbimages_to_4darrays(load_images(ixi_path, key='*mask.nii.gz', loader='nb',verbose=1))
-#n_images = len(T1s)
-#
-#T1_patches = None
-#T2_patches = None
-#PD_patches = None
-#
-#mask_extract = 0.5
-#n_patches = 1000
-#patch_size = 60
-#
-#for i in tqdm(range(n_images)):
-#  #Normalize data using mask
-#  T1_norm = array_normalization(X=T1s[i],M=masks[i],norm=0)
-#  T2_norm = array_normalization(X=T2s[i],M=masks[i],norm=0)
-#  PD_norm = array_normalization(X=PDs[i],M=masks[i],norm=0)
-#  mask = masks[i]
-#  
-#  #Concatenate all modalities into a 4D volume
-#  vol4d = np.concatenate((T1_norm, T2_norm, PD_norm, mask), axis=3)
-#
-#  #Extract random 4D patches
-#  random_state = None
-#  extraction_step = 1
-#  patch_shape = (patch_size,patch_size,patch_size,4)
-#  patches = extract_patches(vol4d, patch_shape, extraction_step=extraction_step)
-#  
-#  rng = check_random_state(random_state)
-#  i_s = rng.randint(vol4d.shape[0] - patch_shape[0] + 1, size=n_patches)
-#  j_s = rng.randint(vol4d.shape[1] - patch_shape[1] + 1, size=n_patches)
-#  k_s = rng.randint(vol4d.shape[2] - patch_shape[2] + 1, size=n_patches)
-#  
-#  patches = patches[i_s, j_s, k_s, :]
-#  patches = patches.reshape(-1, patch_shape[0],patch_shape[1],patch_shape[2], 4)
-#  print(patches.shape)
-#  
-#  pT1= patches[:,:,:,:,0]
-#  pT2= patches[:,:,:,:,1]  
-#  pPD= patches[:,:,:,:,2]  
-#  pM = patches[:,:,:,:,3]
-#  pM = pM.reshape(pM.shape[0],-1)  
-#  
-#  #Remove empty patches (<50% of brain mask)  
-#  pmT1 = pT1[ np.mean(pM,axis=1)>=mask_extract ]
-#  pmT2 = pT2[ np.mean(pM,axis=1)>=mask_extract ]
-#  pmPD = pPD[ np.mean(pM,axis=1)>=mask_extract ]  
-#  
-#  if T1_patches is None:
-#    T1_patches = np.copy(pmT1)
-#    T2_patches = np.copy(pmT2)
-#    PD_patches = np.copy(pmPD)    
-#  else:
-#    T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
-#    T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
-#    PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
-#    
-#print(T1_patches.shape)    
-#
-##Windowing to avoid boundary effect when applying convolutions
-##nd_windowing function from https://stackoverflow.com/questions/27345861/extending-1d-function-across-3-dimensions-for-data-windowing
-#def _nd_window(data, filter_function):
-#  """
-#  Performs an in-place windowing on N-dimensional spatial-domain data.
-#  This is done to mitigate boundary effects in the FFT.
-#  
-#  Parameters
-#  ----------
-#  data : ndarray
-#         Input data to be windowed, modified in place.
-#  filter_function : 1D window generation function
-#         Function should accept one argument: the window length.
-#         Example: scipy.signal.hamming
-#  """
-#  
-#  for axis, axis_size in enumerate(data.shape):
-#    # set up shape for numpy broadcasting
-#    filter_shape = [1, ] * data.ndim
-#    filter_shape[axis] = axis_size
-#    window = filter_function(axis_size).reshape(filter_shape)
-#    # scale the window intensities to maintain image intensity
-#    #np.power(window, (1.0/data.ndim), out=window)  
-#    data *= window
-#
-#  plt.plot(window.reshape((-1)))
-#  return data    
-#
-#plt.figure()
-#plt.subplot(1,3,1)
-#plt.imshow(T1_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.subplot(1,3,2)
-#plt.imshow(T2_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.subplot(1,3,3)
-#plt.imshow(PD_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.show()
-#
-#for n in range(T1_patches.shape[0]):
-#  T1_patches[n,:,:,:] = _nd_window(T1_patches[n,:,:,:],signal.hamming)
-#  T2_patches[n,:,:,:] = _nd_window(T2_patches[n,:,:,:],signal.hamming)
-#  PD_patches[n,:,:,:] = _nd_window(PD_patches[n,:,:,:],signal.hamming)
-#
-#plt.figure()
-#plt.subplot(1,3,1)
-#plt.imshow(T1_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.subplot(1,3,2)
-#plt.imshow(T2_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.subplot(1,3,3)
-#plt.imshow(PD_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-#plt.show()
-#
+if K.image_data_format() == 'channels_first':
+  T1 = np.expand_dims(T1,axis=1)
+  T2 = np.expand_dims(T2,axis=1)
+  PD = np.expand_dims(PD,axis=1)  
+else:
+  T1 = np.expand_dims(T1,axis=-1)
+  T2 = np.expand_dims(T2,axis=-1)
+  PD = np.expand_dims(PD,axis=-1)  
+
+print(T1.shape)
+
+n_channelsX = 1
+n_channelsY = 1
+n_filters = 32
+n_layers = 5
+learning_rate = 0.001
+loss = 'mae'
+batch_size = 32
+epochs = 10
+
+model_T1_to_T2 = AutoEncoder3D(n_channelsX, n_channelsY, n_filters=n_filters)
+#model_T1_to_T2 = ResNet3D(n_channelsX, n_channelsY, n_filters=n_filters, n_layers=n_layers)
+model_T1_to_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+model_T1_to_T2.summary()
+
+hist = model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=True)
+
+model_T1_to_T2.save('/home/rousseau/Exp/toto.h5')
+
+T1image = nibabel.load('/home/rousseau/Exp/IXI/IXI662-Guys-1120-T1.nii.gz')
+T1array = T1image.get_data().astype(float)
+T1array = np.expand_dims(T1array,axis=0)
+
+maskarray = nibabel.load('/home/rousseau/Exp/IXI/IXI662-Guys-1120-T1_bet_mask.nii.gz').get_data().astype(float)
+maskarray = np.expand_dims(maskarray,axis=0)
+T1array = array_normalization(X=T1array,M=maskarray,norm=0)
+T1array = np.expand_dims(T1array,axis=-1)
+
+simu = model_T1_to_T2.predict(T1array, batch_size=1)
+
+output_image = nibabel.Nifti1Image(np.squeeze(simu[0,:,:,:,0]), T1image.affine)
+nibabel.save(output_image,'/home/rousseau/Exp/toto.nii.gz')

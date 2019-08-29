@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 def get_ixi_data(patch_size = 40, n_patches = 1000):
   
-  ixi_path = '/home/rousseau/Exp/IXIsmall/'
+  ixi_path = '/home/rousseau/Exp/IXImedium/'
   T1s = nbimages_to_4darrays(load_images(ixi_path, key='*T1.nii.gz', loader='nb',verbose=1))
   T2s = nbimages_to_4darrays(load_images(ixi_path, key='*T2.nii.gz', loader='nb',verbose=1))
   PDs = nbimages_to_4darrays(load_images(ixi_path, key='*PD.nii.gz', loader='nb',verbose=1))
@@ -65,9 +65,7 @@ def get_ixi_data(patch_size = 40, n_patches = 1000):
       T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
       T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
       PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
-      
-  print(T1_patches.shape)    
-    
+          
 #  plt.figure()
 #  plt.subplot(1,3,1)
 #  plt.imshow(T1_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
