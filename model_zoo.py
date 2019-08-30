@@ -79,3 +79,41 @@ def AutoEncoder3D(n_channelsX, n_channelsY, n_filters=32):
   
   model =  Model(in1,output)
   return model 
+
+def CHP(n_channelsX=1, n_channelsY=1):
+  if K.image_data_format() == 'channels_first':
+    init_shape = (n_channelsX, None, None, None)
+    channel_axis = 1
+  else:
+    init_shape = (None, None, None,n_channelsX)
+    channel_axis = -1
+  
+  in1 = Input(shape=init_shape, name='in1')	
+  
+  x = Conv3D(filters=16, kernel_size=(7, 7, 7), strides=1, use_bias=False, padding='same')(in1)
+  x = BatchNormalization(axis=channel_axis)(x)
+  x = Activation('relu')(x)
+  
+  x = Conv3D(filters=32, kernel_size=(3, 3, 3), strides=2, use_bias=False, padding='same')(x)
+  x = BatchNormalization(axis=channel_axis)(x)
+  x = Activation('relu')(x)
+  
+  for i in range(6):
+    y = Conv3D(filters=32, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(x)
+    y = BatchNormalization(axis=channel_axis)(y)
+    y = Activation('relu')(y)
+    y = Conv3D(filters=32, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(y)
+    y = BatchNormalization(axis=channel_axis)(y)
+    x = Add()([x,y])
+  
+  x=(UpSampling3D((2, 2, 2)))(x)  
+  x = Conv3D(filters=16, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(x)
+  x = BatchNormalization(axis=channel_axis)(x)
+  x = Activation('relu')(x)
+  
+  x = Conv3D(filters=n_channelsY, kernel_size=(7, 7, 7), strides=1, use_bias=False, padding='same')(x)
+  output=(Activation('linear'))(x)
+  
+  model =  Model(in1,output)
+  return model   
+  
