@@ -2,6 +2,7 @@ import glob
 import nibabel
 import SimpleITK as sitk
 import numpy as np
+import keras.backend as K
 
 
 def load_images(data_path, key, loader = 'itk', verbose = 0):  
@@ -39,7 +40,7 @@ def nbimages_to_4darrays(images):
   arrays = []
   for im in images:
     data  = np.float32(im.get_data())
-    #Make sure that all data are 4D
+    #Make sure that all data are 4D (channels last)
     if len(data.shape)==3:
       data = data[:,:,:,np.newaxis]
     arrays.append(data)  
@@ -94,3 +95,39 @@ def nd_windowing(data, filter_function):
     #np.power(window, (1.0/data.ndim), out=window)  
     data *= window
   return data    
+
+def apply_model_on_3dimage(model,image,mask=None):
+  """
+  Apply a Keras model on a 3D nibabel image.
+  A mask (numpy array) can be used for normalization
+  """
+  array = image.get_data().astype(float)
+  #Convert 3D array to 4D array with channel last
+  if len(array.shape) < 4:
+    array = np.expand_dims(array,axis=-1) #by default we use channel last
+  
+  if mask is not None:
+    if len(mask.shape) < 4:
+      mask = np.expand_dims(mask,axis=-1)
+  else:
+    mask = np.ones(array.shape)
+    
+  array = array_normalization(X=array,M=mask,norm=0)
+  #Add fifth dimension for Keras prediction
+  array = np.expand_dims(array,axis=0)
+  
+  if K.image_data_format() == 'channels_first':
+    print('Swapping axis because channel first mode is used in Keras')
+    array = np.moveaxis(array, -1, 1)  
+    
+  output_array = model.predict(array, batch_size=1)
+  
+  if K.image_data_format() == 'channels_first':
+    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,0,:,:,:]), image.affine)
+  else:
+    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,:,:,:,0]), image.affine)  
+  
+  return output_image
+  
+  
+  
