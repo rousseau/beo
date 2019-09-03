@@ -90,7 +90,7 @@ def CHP(n_channelsX=1, n_channelsY=1):
   
   in1 = Input(shape=init_shape, name='in1')	
   
-  x = Conv3D(filters=16, kernel_size=(7, 7, 7), strides=1, use_bias=False, padding='same')(in1)
+  x = Conv3D(filters=16, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(in1)
   x = BatchNormalization(axis=channel_axis)(x)
   x = Activation('relu')(x)
   
@@ -111,7 +111,7 @@ def CHP(n_channelsX=1, n_channelsY=1):
   x = BatchNormalization(axis=channel_axis)(x)
   x = Activation('relu')(x)
   
-  x = Conv3D(filters=n_channelsY, kernel_size=(7, 7, 7), strides=1, use_bias=False, padding='same')(x)
+  x = Conv3D(filters=n_channelsY, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(x)
   output=(Activation('linear'))(x)
   
   model =  Model(in1,output)
