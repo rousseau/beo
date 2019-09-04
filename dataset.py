@@ -6,8 +6,11 @@ from sklearn.utils import check_random_state
 from scipy import signal
 import matplotlib.pyplot as plt
 
+from os.path import expanduser
+
 def get_ixi_4darrays():
-  ixi_path = '/home/rousseau/Exp/IXImedium/'
+  home = expanduser("~")
+  ixi_path = home+'/Exp/IXImedium/'
   T1s = nbimages_to_4darrays(load_images(ixi_path, key='*T1.nii.gz', loader='nb',verbose=1))
   T2s = nbimages_to_4darrays(load_images(ixi_path, key='*T2.nii.gz', loader='nb',verbose=1))
   PDs = nbimages_to_4darrays(load_images(ixi_path, key='*PD.nii.gz', loader='nb',verbose=1))
@@ -48,7 +51,7 @@ def get_ixi_3dpatches(patch_size = 40, n_patches = 1000):
     
     patches = patches[i_s, j_s, k_s, :]
     patches = patches.reshape(-1, patch_shape[0],patch_shape[1],patch_shape[2], 4)
-    print(patches.shape)
+    #print(patches.shape)
     
     pT1= patches[:,:,:,:,0]
     pT2= patches[:,:,:,:,1]  
