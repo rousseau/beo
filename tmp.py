@@ -7,8 +7,16 @@ from keras.optimizers import Adam
 import numpy as np
 import nibabel
 from utils import apply_model_on_3dimage
+from keras.models import load_model
+
+#Package from OpenAI for GPU memory saving
+#https://github.com/cybertronai/gradient-checkpointing
+import memory_saving_gradients
 
 print(K.image_data_format())
+from os.path import expanduser
+home = expanduser("~")
+output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
 n_patches = 5000
@@ -28,11 +36,20 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 10
+n_layers = 5
 learning_rate = 0.0001
 loss = 'mae'
-batch_size = 16
+batch_size = 64
 epochs = 10
+use_optim = 1
+inverse_consistency = 0
+cycle_consistency = 0
+identity_consistency = 0
+load_pretrained_models = 0
+
+if use_optim == 0:
+  print('Make use of memory_saving_gradients package')
+  K.__dict__["gradients"] = memory_saving_gradients.gradients_memory
 
 if K.image_data_format() == 'channels_first':
   init_shape = (n_channelsX, None, None, None)
@@ -42,25 +59,59 @@ else:
   init_shape = (None, None, None,n_channelsX)
   feature_shape = (None, None, None, n_filters)
   channel_axis = -1
-  
-feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters, kernel_size=3)
-recon_model = build_recon_model(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=3)
+
+#The five models required to build all the models :   
+if load_pretrained_models == 0:  
+  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters, kernel_size=5)
+  recon_model = build_recon_model(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=3)
+else:
+  feature_model = load_model(output_path+'feature_model.h5')
+  recon_model = load_model(output_path+'recon_model.h5')
+
 
 block_PD_to_T2 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
 block_T2_to_T1 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
 block_T1_to_PD =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
   
-#triad_model = TriangleModel(init_shape = init_shape, 
-#                            feature_shape = feature_shape,
-#                            feature_model = feature_model,
-#                            block_PD_to_T2 = block_PD_to_T2,
-#                            block_T2_to_T1 = block_T2_to_T1,
-#                            block_T1_to_PD = block_T1_to_PD,
-#                            reconstruction_model = recon_model,
-#                            n_layers = n_layers)
-#triad_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-#triad_model.summary()
-#hist = triad_model.fit(x=[T1,T2,PD], y=np.zeros((T1.shape[0])), batch_size=batch_size, epochs=epochs, verbose=1, shuffle=True)
+
+#Identity consistency
+model_identity = build_one_model(init_shape, feature_model = feature_model, mapping_model = None, reconstruction_model = recon_model)
+model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+feature_model.summary()
+recon_model.summary()
+
+if load_pretrained_models == 0:  
+  print('Start by learning the auto-encoding part')
+  print('Identity mappings')
+  #The best option should be to concatenate all patches to learn over the entire set of patches
+  #However, numpy concatenation requires twice the RAM
+  for e in range(epochs):
+    model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+  
+  feature_model.save(output_path+'feature_model.h5')
+  recon_model.save(output_path+'recon_model.h5')
+
+print('Freezing the AE part of the network')
+for layer in feature_model.layers:
+  layer.trainable = False
+feature_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+
+for layer in recon_model.layers:
+  layer.trainable = False
+recon_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+#check if freeze is ok
+for layer in feature_model.layers:
+  print(layer)
+  print(layer.trainable)
+
+#------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 
 #Direct mapping
 mapping_PD_to_T2 = build_forward_model(init_shape=feature_shape, block_model=block_PD_to_T2, n_layers=n_layers)
@@ -103,47 +154,15 @@ model_cycle_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_cycle_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 
-#Identity consistency
-model_identity = build_one_model(init_shape, feature_model = feature_model, mapping_model = None, reconstruction_model = recon_model)
-
-model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-
-inverse_consistency = 0
-cycle_consistency = 0
-identity_consistency = 0
-
-#for e in range(epochs):
-#  print('Direct mappings')
-#  model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#  model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#  model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#
-#  if inverse_consistency == 1:
-#    print('Inverse mappings')
-#    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    
-#  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
-#    print('Cycle mappings')
-#    model_cycle_PD.fit(x=PD, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_cycle_T2.fit(x=T2, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_cycle_T1.fit(x=T1, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#
-#  if identity_consistency == 1:
-#    print('Identity mappings')
-#    model_identity.fit(x=PD, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_identity.fit(x=T2, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_identity.fit(x=T1, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-
-
-
-T1image = nibabel.load('/home/rousseau/Sync/Experiments/IXI/IXI661-HH-2788-T1.nii.gz')
-T2image = nibabel.load('/home/rousseau/Sync/Experiments/IXI/IXI661-HH-2788-T2.nii.gz')
-PDimage = nibabel.load('/home/rousseau/Sync/Experiments/IXI/IXI661-HH-2788-PD.nii.gz')
-maskarray = nibabel.load('/home/rousseau/Sync/Experiments/IXI/IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
+#Apply on a test image
+T1image = nibabel.load(output_path+'IXI661-HH-2788-T1.nii.gz')
+T2image = nibabel.load(output_path+'IXI661-HH-2788-T2.nii.gz')
+PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD.nii.gz')
+maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
 
 prefix = 'iclr_nowindowing'
+if use_optim == 1:
+  prefix += '_optim'
 if inverse_consistency == 1:
   prefix += '_invc'
 if cycle_consistency == 1:
@@ -151,67 +170,76 @@ if cycle_consistency == 1:
 if identity_consistency == 1:
   prefix += '_idc'  
 prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_mp'+str(n_patches)+'_np'+str(T1.shape[0])
+prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
 prefix+= '_nl'+str(n_layers)
 prefix+= '_'
 
-CHPmodel_T2_to_T1 = CHP()
-CHPmodel_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-CHPmodel_T2_to_T1.summary()
-CHPmodel_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
-image_T2_to_T1 = apply_model_on_3dimage(CHPmodel_T2_to_T1, T2image, mask=maskarray)
-nibabel.save(image_T2_to_T1,'/home/rousseau/Sync/Experiments/IXI/CHP_T2_to_T1.nii.gz')
+#Encoding
+image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
+nibabel.save(image_T1_id,output_path+prefix+'id_T1.nii.gz')
 
-#model_T1_to_T2 = AutoEncoder3D(n_channelsX, n_channelsY, n_filters=n_filters)
-#model_T1_to_T2 = ResNet3D(n_channelsX, n_channelsY, n_filters=n_filters, n_layers=n_layers)
-#model_T1_to_T2 = CHP()
-#model_T1_to_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-#model_T1_to_T2.summary()
-#hist = model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=True)
-#model_T1_to_T2.save('/home/rousseau/Sync/Experiments/IXI/'+prefix+'t1_to_t2.h5')
+image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
+nibabel.save(image_T2_id,output_path+prefix+'id_T2.nii.gz')
+
+image_PD_id = apply_model_on_3dimage(model_identity, PDimage, mask=maskarray)
+nibabel.save(image_PD_id,output_path+prefix+'id_PD.nii.gz')
 
 
-#model_T2_to_PD = CHP()
-#model_T2_to_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-#hist = model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=True)
-#model_T2_to_PD.save('/home/rousseau/Sync/Experiments/IXI/'+prefix+'t2_to_pd.h5')
+for e in range(epochs):
+  print('Direct mappings')
+  model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
 
-#model_T1_to_PD = CHP()
-#model_T1_to_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-#hist = model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=True)
-#model_T1_to_PD.save('/home/rousseau/Sync/Experiments/IXI/'+prefix+'t1_to_pd.h5')
+  if inverse_consistency == 1:
+    print('Inverse mappings')
+    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+    
+  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
+    print('Cycle mappings')
+    model_cycle_PD.fit(x=PD, y=PD, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+    model_cycle_T2.fit(x=T2, y=T2, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+    model_cycle_T1.fit(x=T1, y=T1, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
 
+  if identity_consistency == 1: #no mapping so batch size could be increased
+    print('Identity mappings')
+    model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
 
 #Direct mapping
 image_PD_to_T2 = apply_model_on_3dimage(model_PD_to_T2, PDimage, mask=maskarray)
-nibabel.save(image_PD_to_T2,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'direct_PD_to_T2.nii.gz')
+nibabel.save(image_PD_to_T2,output_path+prefix+'direct_PD_to_T2.nii.gz')
 
 image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
-nibabel.save(image_T2_to_T1,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'direct_T2_to_T1.nii.gz')
+nibabel.save(image_T2_to_T1,output_path+prefix+'direct_T2_to_T1.nii.gz')
 
 image_T1_to_PD = apply_model_on_3dimage(model_T1_to_PD, T1image, mask=maskarray)
-nibabel.save(image_T1_to_PD,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'direct_T1_to_PD.nii.gz')
+nibabel.save(image_T1_to_PD,output_path+prefix+'direct_T1_to_PD.nii.gz')
 
 #Inverse
 image_T1_to_T2 = apply_model_on_3dimage(model_T1_to_T2,T1image,mask=maskarray)
-nibabel.save(image_T1_to_T2,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'inverse_T1_to_T2.nii.gz')
+nibabel.save(image_T1_to_T2,output_path+prefix+'inverse_T1_to_T2.nii.gz')
 
 image_T2_to_PD = apply_model_on_3dimage(model_T2_to_PD, T2image, mask=maskarray)
-nibabel.save(image_T2_to_PD,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'inverse_T2_to_PD.nii.gz')
+nibabel.save(image_T2_to_PD,output_path+prefix+'inverse_T2_to_PD.nii.gz')
 
 #Composition
 image_PD_to_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, image_PD_to_T2, mask=maskarray)
-nibabel.save(image_PD_to_T2_to_T1,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'composition_PD_to_T2_to_T1.nii.gz')
+nibabel.save(image_PD_to_T2_to_T1,output_path+prefix+'composition_PD_to_T2_to_T1.nii.gz')
  
 #Cycle
 image_PD_to_PD = apply_model_on_3dimage(model_cycle_PD, PDimage, mask=maskarray)
-nibabel.save(image_PD_to_PD,'/home/rousseau/Sync/Experiments/IXI/'+prefix+'cycle_PD_to_PD.nii.gz')
+nibabel.save(image_PD_to_PD,output_path+prefix+'cycle_PD_to_PD.nii.gz')
 
-CHPmodel_T2_to_T1 = CHP()
-CHPmodel_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-CHPmodel_T2_to_T1.summary()
-CHPmodel_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
-image_T2_to_T1 = apply_model_on_3dimage(CHPmodel_T2_to_T1, T2image, mask=maskarray)
-nibabel.save(image_T2_to_T1,'/home/rousseau/Sync/Experiments/IXI/CHP_T2_to_T1.nii.gz')
+#CHPmodel_T2_to_T1 = CHP()
+#CHPmodel_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+#CHPmodel_T2_to_T1.summary()
+#CHPmodel_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+#image_T2_to_T1 = apply_model_on_3dimage(CHPmodel_T2_to_T1, T2image, mask=maskarray)
+#nibabel.save(image_T2_to_T1,'/home/rousseau/Sync/Experiments/IXI/CHP_T2_to_T1.nii.gz')
 
 

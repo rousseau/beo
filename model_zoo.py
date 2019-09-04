@@ -118,6 +118,25 @@ def CHP(n_channelsX=1, n_channelsY=1):
   return model   
 
 
+#def build_feature_model(init_shape, n_filters=32, kernel_size=3):
+#  if K.image_data_format() == 'channels_first':
+#    channel_axis = 1
+#  else:
+#    channel_axis = -1
+#      
+#  inputs = Input(shape=init_shape)
+#  
+#  features = inputs
+#      
+#  features = Conv3D(n_filters, (kernel_size, kernel_size, kernel_size), padding='same', kernel_initializer='he_normal',
+#                  use_bias=False,
+#                  strides=1)(features)
+#  features = BatchNormalization(axis=channel_axis)(features)
+#  features = Activation('tanh')(features)
+#  
+#  model = Model(inputs=inputs, outputs=features)
+#  return model
+
 def build_feature_model(init_shape, n_filters=32, kernel_size=3):
   if K.image_data_format() == 'channels_first':
     channel_axis = 1
@@ -128,25 +147,49 @@ def build_feature_model(init_shape, n_filters=32, kernel_size=3):
   
   features = inputs
       
-  features = Conv3D(n_filters, (kernel_size, kernel_size, kernel_size), padding='same', kernel_initializer='he_normal',
+  features = Conv3D((int)(n_filters/2), (kernel_size, kernel_size, kernel_size), padding='same', kernel_initializer='he_normal',
                   use_bias=False,
                   strides=1)(features)
+  features = BatchNormalization(axis=channel_axis)(features)
+  features = Activation('relu')(features) 
+  
+  features = Conv3D(filters=n_filters, kernel_size=(3, 3, 3), strides=2, use_bias=False, padding='same')(features)
   features = BatchNormalization(axis=channel_axis)(features)
   features = Activation('tanh')(features)
   
   model = Model(inputs=inputs, outputs=features)
   return model
 
+
+#def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
+#  input_recon = Input(shape=init_shape)
+#
+#  recon = Activation('tanh')(input_recon)
+#  
+#  recon = Conv3D(n_channelsY, (kernel_size, kernel_size, kernel_size), padding='same', kernel_initializer='he_normal',
+#                  use_bias=False,
+#                  strides=1)(recon)
+#  
+#  recon = Activation('linear')(recon)
+#  
+#  model = Model(inputs=input_recon, outputs=recon)
+#  return model
+
 def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
+  if K.image_data_format() == 'channels_first':
+    channel_axis = 1
+  else:
+    channel_axis = -1
+  
   input_recon = Input(shape=init_shape)
 
-  recon = Activation('tanh')(input_recon)
+  recon=(UpSampling3D((2, 2, 2)))(input_recon)  
+  recon = Conv3D(filters=16, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(recon)
+  recon = BatchNormalization(axis=channel_axis)(recon)
+  recon = Activation('relu')(recon)
   
-  recon = Conv3D(n_channelsY, (kernel_size, kernel_size, kernel_size), padding='same', kernel_initializer='he_normal',
-                  use_bias=False,
-                  strides=1)(recon)
-  
-  recon = Activation('linear')(recon)
+  recon = Conv3D(filters=n_channelsY, kernel_size=(kernel_size, kernel_size, kernel_size), strides=1, use_bias=False, padding='same')(recon)
+  recon=(Activation('linear'))(recon)
   
   model = Model(inputs=input_recon, outputs=recon)
   return model
@@ -164,7 +207,7 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   x = Conv3D(n_filters, (3, 3, 3), padding='same', kernel_initializer='he_normal',
                   use_bias=False,
                   strides=1)(x)
-  x = Activation('tanh')(x)  
+  #x = Activation('tanh')(x)  
   output_block = x
   
   model = Model(inputs=input_block, outputs=output_block)
