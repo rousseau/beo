@@ -65,6 +65,7 @@ if load_pretrained_models == 0:
   feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters, kernel_size=5)
   recon_model = build_recon_model(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=3)
 else:
+  print('Loading Feature and Reconstruction Models')
   feature_model = load_model(output_path+'feature_model.h5')
   recon_model = load_model(output_path+'recon_model.h5')
 
