@@ -8,6 +8,9 @@ import numpy as np
 import nibabel
 from utils import apply_model_on_3dimage
 from keras.models import load_model
+import pickle 
+import mgzip
+import timeit
 
 #Package from OpenAI for GPU memory saving
 #https://github.com/cybertronai/gradient-checkpointing
@@ -19,8 +22,28 @@ home = expanduser("~")
 output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
-n_patches = 5000
-(T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
+
+load_pickle_patches = 1
+
+if load_pickle_patches == 0:
+  n_patches = 1000
+  (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
+  
+  with mgzip.open(home+'/Exp/T1.pklz', 'wb') as fp:
+    pickle.dump(T1, fp, protocol=4)
+  with mgzip.open(home+'/Exp/T2.pklz', 'wb') as fp:
+    pickle.dump(T2, fp, protocol=4)
+  with mgzip.open(home+'/Exp/PD.pklz', 'wb') as fp:
+    pickle.dump(PD, fp, protocol=4)
+else:
+  print('Loading gzip pickle files')
+  with mgzip.open(home+'/Exp/T1.pklz', 'rb') as fp:
+    T1 = pickle.load(fp)
+  with mgzip.open(home+'/Exp/T2.pklz', 'rb') as fp:
+    T2 = pickle.load(fp)
+  with mgzip.open(home+'/Exp/PD.pklz', 'rb') as fp:
+    PD = pickle.load(fp)
+
 
 if K.image_data_format() == 'channels_first':
   T1 = np.expand_dims(T1,axis=1)
@@ -35,34 +58,35 @@ print(T1.shape)
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 32
+n_filters = 64
+n_filters_features = 64
 n_layers = 5
 learning_rate = 0.0001
 loss = 'mae'
-batch_size = 64
+batch_size = 32
 epochs = 10
-use_optim = 1
+use_optim = 0
 inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
-load_pretrained_models = 0
+load_pretrained_models = 1
 
-if use_optim == 0:
+if use_optim == 1:
   print('Make use of memory_saving_gradients package')
   K.__dict__["gradients"] = memory_saving_gradients.gradients_memory
 
 if K.image_data_format() == 'channels_first':
   init_shape = (n_channelsX, None, None, None)
-  feature_shape = (n_filters, None, None, None)
+  feature_shape = (n_filters_features, None, None, None)
   channel_axis = 1
 else:
   init_shape = (None, None, None,n_channelsX)
-  feature_shape = (None, None, None, n_filters)
+  feature_shape = (None, None, None, n_filters_features)
   channel_axis = -1
 
 #The five models required to build all the models :   
 if load_pretrained_models == 0:  
-  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters, kernel_size=5)
+  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters_features, kernel_size=5)
   recon_model = build_recon_model(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=3)
 else:
   print('Loading Feature and Reconstruction Models')
