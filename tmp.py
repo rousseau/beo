@@ -10,7 +10,7 @@ from utils import apply_model_on_3dimage
 from keras.models import load_model
 import pickle 
 import mgzip
-import timeit
+import joblib
 
 #Package from OpenAI for GPU memory saving
 #https://github.com/cybertronai/gradient-checkpointing
@@ -23,26 +23,34 @@ output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
 
-load_pickle_patches = 1
+load_pickle_patches = 0
 
 if load_pickle_patches == 0:
   n_patches = 1000
   (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
   
-  with mgzip.open(home+'/Exp/T1.pklz', 'wb') as fp:
-    pickle.dump(T1, fp, protocol=4)
-  with mgzip.open(home+'/Exp/T2.pklz', 'wb') as fp:
-    pickle.dump(T2, fp, protocol=4)
-  with mgzip.open(home+'/Exp/PD.pklz', 'wb') as fp:
-    pickle.dump(PD, fp, protocol=4)
+  joblib.dump(T1,home+'/Exp/T1.pklz', compress=True)
+  joblib.dump(T2,home+'/Exp/T2.pklz', compress=True)
+  joblib.dump(PD,home+'/Exp/PD.pklz', compress=True)
+  
+#  with mgzip.open(home+'/Exp/T1.pklz', 'wb') as fp:
+#    pickle.dump(T1, fp, protocol=4)
+#  with mgzip.open(home+'/Exp/T2.pklz', 'wb') as fp:
+#    pickle.dump(T2, fp, protocol=4)
+#  with mgzip.open(home+'/Exp/PD.pklz', 'wb') as fp:
+#    pickle.dump(PD, fp, protocol=4)
 else:
   print('Loading gzip pickle files')
-  with mgzip.open(home+'/Exp/T1.pklz', 'rb') as fp:
-    T1 = pickle.load(fp)
-  with mgzip.open(home+'/Exp/T2.pklz', 'rb') as fp:
-    T2 = pickle.load(fp)
-  with mgzip.open(home+'/Exp/PD.pklz', 'rb') as fp:
-    PD = pickle.load(fp)
+  T1 = joblib.load(home+'/Exp/T1.pklz')
+  T2 = joblib.load(home+'/Exp/T2.pklz')
+  PD = joblib.load(home+'/Exp/PD.pklz')
+  
+#  with mgzip.open(home+'/Exp/T1.pklz', 'rb') as fp:
+#    T1 = pickle.load(fp)
+#  with mgzip.open(home+'/Exp/T2.pklz', 'rb') as fp:
+#    T2 = pickle.load(fp)
+#  with mgzip.open(home+'/Exp/PD.pklz', 'rb') as fp:
+#    PD = pickle.load(fp)
 
 
 if K.image_data_format() == 'channels_first':
