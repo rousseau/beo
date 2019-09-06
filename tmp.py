@@ -8,8 +8,6 @@ import numpy as np
 import nibabel
 from utils import apply_model_on_3dimage
 from keras.models import load_model
-import pickle 
-import mgzip
 import joblib
 
 #Package from OpenAI for GPU memory saving
@@ -23,35 +21,21 @@ output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
 
-load_pickle_patches = 0
+load_pickle_patches = 1
 
 if load_pickle_patches == 0:
-  n_patches = 1000
+  n_patches = 5000
   (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
   
-  joblib.dump(T1,home+'/Exp/T1.pklz', compress=True)
-  joblib.dump(T2,home+'/Exp/T2.pklz', compress=True)
-  joblib.dump(PD,home+'/Exp/PD.pklz', compress=True)
+  joblib.dump(T1,home+'/Exp/T1.pkl', compress=True)
+  joblib.dump(T2,home+'/Exp/T2.pkl', compress=True)
+  joblib.dump(PD,home+'/Exp/PD.pkl', compress=True)
   
-#  with mgzip.open(home+'/Exp/T1.pklz', 'wb') as fp:
-#    pickle.dump(T1, fp, protocol=4)
-#  with mgzip.open(home+'/Exp/T2.pklz', 'wb') as fp:
-#    pickle.dump(T2, fp, protocol=4)
-#  with mgzip.open(home+'/Exp/PD.pklz', 'wb') as fp:
-#    pickle.dump(PD, fp, protocol=4)
 else:
-  print('Loading gzip pickle files')
-  T1 = joblib.load(home+'/Exp/T1.pklz')
-  T2 = joblib.load(home+'/Exp/T2.pklz')
-  PD = joblib.load(home+'/Exp/PD.pklz')
-  
-#  with mgzip.open(home+'/Exp/T1.pklz', 'rb') as fp:
-#    T1 = pickle.load(fp)
-#  with mgzip.open(home+'/Exp/T2.pklz', 'rb') as fp:
-#    T2 = pickle.load(fp)
-#  with mgzip.open(home+'/Exp/PD.pklz', 'rb') as fp:
-#    PD = pickle.load(fp)
-
+  print('Loading gzip pickle files')  
+  T1 = joblib.load(home+'/Exp/T1.pkl')
+  T2 = joblib.load(home+'/Exp/T2.pkl')
+  PD = joblib.load(home+'/Exp/PD.pkl')
 
 if K.image_data_format() == 'channels_first':
   T1 = np.expand_dims(T1,axis=1)
@@ -66,9 +50,9 @@ print(T1.shape)
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 64
-n_filters_features = 64
+n_filters = 32
 n_layers = 5
+n_layers_residual = 4
 learning_rate = 0.0001
 loss = 'mae'
 batch_size = 32
@@ -85,16 +69,16 @@ if use_optim == 1:
 
 if K.image_data_format() == 'channels_first':
   init_shape = (n_channelsX, None, None, None)
-  feature_shape = (n_filters_features, None, None, None)
+  feature_shape = (n_filters, None, None, None)
   channel_axis = 1
 else:
   init_shape = (None, None, None,n_channelsX)
-  feature_shape = (None, None, None, n_filters_features)
+  feature_shape = (None, None, None, n_filters)
   channel_axis = -1
 
 #The five models required to build all the models :   
 if load_pretrained_models == 0:  
-  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters_features, kernel_size=5)
+  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters, kernel_size=5)
   recon_model = build_recon_model(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=3)
 else:
   print('Loading Feature and Reconstruction Models')
@@ -102,9 +86,9 @@ else:
   recon_model = load_model(output_path+'recon_model.h5')
 
 
-block_PD_to_T2 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
-block_T2_to_T1 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
-block_T1_to_PD =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=2) 
+block_PD_to_T2 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) 
+block_T2_to_T1 =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) 
+block_T1_to_PD =  build_block_model(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) 
   
 
 #Identity consistency
@@ -202,10 +186,11 @@ if cycle_consistency == 1:
   prefix += '_cycle'
 if identity_consistency == 1:
   prefix += '_idc'  
-prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_mp'+str(n_patches)+'_np'+str(T1.shape[0])
+prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(T1.shape[0])
 prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
 prefix+= '_nl'+str(n_layers)
+prefix+= '_nlr'+str(n_layers_residual)
 prefix+= '_'
 
 #Encoding

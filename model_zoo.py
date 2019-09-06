@@ -2,6 +2,7 @@ import keras.backend as K
 from keras.models import Model
 from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda
 from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
+from keras.layers import concatenate
 from keras.regularizers import l1, l2
 
 def conv_bn_relu(input,n_filters=128,strides=1):
@@ -195,19 +196,40 @@ def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
   return model
 
 def build_block_model(init_shape, n_filters=32, n_layers=2):
+  if K.image_data_format() == 'channels_first':
+    channel_axis = 1
+  else:
+    channel_axis = -1
+  
   input_block = Input(shape=init_shape)
-
   x = input_block
-  for i in range(n_layers-1):
+  
+  block_type = 'dense'
+  ratio = 1 #increase inside the block the number of filters
+
+  if block_type == 'resnet':
+    
+    for i in range(n_layers-1):
+      x = Conv3D(n_filters*ratio, (3, 3, 3), padding='same', kernel_initializer='he_normal',
+                      use_bias=False,
+                      strides=1)(x)
+      x = Activation('relu')(x)
+  
     x = Conv3D(n_filters, (3, 3, 3), padding='same', kernel_initializer='he_normal',
                     use_bias=False,
                     strides=1)(x)
-    x = Activation('relu')(x)
+    #x = Activation('tanh')(x)  
+  
+  else:
+    for i in range(n_layers):
+      #conv
+      y = Conv3D(n_filters*ratio, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', use_bias=False)(x)
+      x = concatenate([x,y], axis=channel_axis)
 
-  x = Conv3D(n_filters, (3, 3, 3), padding='same', kernel_initializer='he_normal',
-                  use_bias=False,
-                  strides=1)(x)
-  #x = Activation('tanh')(x)  
+      #bottleneck to keep the same feature dimension
+      x = Conv3D(n_filters, (1, 1, 1), activation='relu', padding='same', kernel_initializer='he_normal', use_bias=False)(x)
+    
+  
   output_block = x
   
   model = Model(inputs=input_block, outputs=output_block)
