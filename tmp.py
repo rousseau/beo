@@ -51,17 +51,20 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 5
-n_layers_residual = 4
+n_layers = 10
+n_layers_residual = 5
 learning_rate = 0.0001
-loss = 'mae'
+loss = 'mae' 
 batch_size = 32
-epochs = 10
+epochs = 5
 use_optim = 0
+
 inverse_consistency = 0
 cycle_consistency = 0
-identity_consistency = 0
+identity_consistency = 1
+
 load_pretrained_models = 1
+freeze_ae = 0
 
 if use_optim == 1:
   print('Make use of memory_saving_gradients package')
@@ -113,14 +116,15 @@ if load_pretrained_models == 0:
   feature_model.save(output_path+'feature_model.h5')
   recon_model.save(output_path+'recon_model.h5')
 
-print('Freezing the AE part of the network')
-for layer in feature_model.layers:
-  layer.trainable = False
-feature_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
-
-for layer in recon_model.layers:
-  layer.trainable = False
-recon_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+if freeze_ae == 1:
+  print('Freezing the AE part of the network')
+  for layer in feature_model.layers:
+    layer.trainable = False
+  feature_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+  for layer in recon_model.layers:
+    layer.trainable = False
+  recon_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
   
 #check if freeze is ok
 for layer in feature_model.layers:
@@ -193,17 +197,6 @@ prefix+= '_nl'+str(n_layers)
 prefix+= '_nlr'+str(n_layers_residual)
 prefix+= '_'
 
-#Encoding
-image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
-nibabel.save(image_T1_id,output_path+prefix+'id_T1.nii.gz')
-
-image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
-nibabel.save(image_T2_id,output_path+prefix+'id_T2.nii.gz')
-
-image_PD_id = apply_model_on_3dimage(model_identity, PDimage, mask=maskarray)
-nibabel.save(image_PD_id,output_path+prefix+'id_PD.nii.gz')
-
-
 for e in range(epochs):
   print('Direct mappings')
   model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
@@ -227,6 +220,16 @@ for e in range(epochs):
     model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
     model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
     model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+
+#Encoding
+image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
+nibabel.save(image_T1_id,output_path+prefix+'id_T1.nii.gz')
+
+image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
+nibabel.save(image_T2_id,output_path+prefix+'id_T2.nii.gz')
+
+image_PD_id = apply_model_on_3dimage(model_identity, PDimage, mask=maskarray)
+nibabel.save(image_PD_id,output_path+prefix+'id_PD.nii.gz')
 
 #Direct mapping
 image_PD_to_T2 = apply_model_on_3dimage(model_PD_to_T2, PDimage, mask=maskarray)

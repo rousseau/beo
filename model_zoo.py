@@ -204,13 +204,12 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   input_block = Input(shape=init_shape)
   x = input_block
   
-  block_type = 'dense'
-  ratio = 1 #increase inside the block the number of filters
+  block_type = 'res_in_res'
+  ratio = 1 #change inside the block the number of filters
 
-  if block_type == 'resnet':
-    
+  if block_type == 'resnet':    
     for i in range(n_layers-1):
-      x = Conv3D(n_filters*ratio, (3, 3, 3), padding='same', kernel_initializer='he_normal',
+      x = Conv3D((int)(n_filters*ratio), (3, 3, 3), padding='same', kernel_initializer='he_normal',
                       use_bias=False,
                       strides=1)(x)
       x = Activation('relu')(x)
@@ -220,18 +219,31 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
                     strides=1)(x)
     #x = Activation('tanh')(x)  
   
-  else:
+
+  if block_type == 'dense':
     for i in range(n_layers):
       #conv
-      y = Conv3D(n_filters*ratio, (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', use_bias=False)(x)
+      y = Conv3D((int)(n_filters*ratio), (3, 3, 3), activation='relu', padding='same', kernel_initializer='he_normal', use_bias=False)(x)
       x = concatenate([x,y], axis=channel_axis)
 
       #bottleneck to keep the same feature dimension
       x = Conv3D(n_filters, (1, 1, 1), activation='relu', padding='same', kernel_initializer='he_normal', use_bias=False)(x)
     
+
+  if block_type =='res_in_res':
+    for i in range(n_layers):
+      y = Conv3D((int)(n_filters*ratio), (3, 3, 3), padding='same', kernel_initializer='he_normal',
+                      use_bias=False,
+                      strides=1)(x)
+      y = Activation('relu')(y)
   
-  output_block = x
-  
+      y = Conv3D(n_filters, (3, 3, 3), padding='same', kernel_initializer='he_normal',
+                    use_bias=False,
+                    strides=1)(y)
+      x = Add()([y,x])  
+
+      
+  output_block = x  
   model = Model(inputs=input_block, outputs=output_block)
   return model
 
