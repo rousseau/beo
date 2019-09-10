@@ -2,6 +2,7 @@ from dataset import get_ixi_3dpatches
 from model_zoo import ResNet3D, AutoEncoder3D, CHP, TriangleModel
 from model_zoo import build_feature_model, build_recon_model, build_block_model
 from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition
+from model_zoo import build_exp_model
 import keras.backend as K
 from keras.optimizers import Adam
 import numpy as np
@@ -51,20 +52,36 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 10
+n_layers = 1
 n_layers_residual = 5
 learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 32
-epochs = 5
+epochs = 50
 use_optim = 0
 
 inverse_consistency = 0
 cycle_consistency = 0
-identity_consistency = 1
+identity_consistency = 0
 
-load_pretrained_models = 1
+load_pretrained_models = 0
 freeze_ae = 0
+
+prefix = 'iclr_nowindowing'
+if use_optim == 1:
+  prefix += '_optim'
+if inverse_consistency == 1:
+  prefix += '_invc'
+if cycle_consistency == 1:
+  prefix += '_cycle'
+if identity_consistency == 1:
+  prefix += '_idc'  
+prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(T1.shape[0])
+prefix+= '_bs'+str(batch_size)
+prefix+= '_lr'+str(learning_rate)
+prefix+= '_nl'+str(n_layers)
+prefix+= '_nlr'+str(n_layers_residual)
+prefix+= '_'
 
 if use_optim == 1:
   print('Make use of memory_saving_gradients package')
@@ -175,33 +192,30 @@ model_cycle_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_cycle_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 
+
+#Experimental
+lwr = 0.1 #loss weight reconstruction
+lwm = 1   #loss weight mapping
+model_exp = build_exp_model(init_shape, feature_model = feature_model, mapping_model = mapping_T2_to_T1, reconstruction_model = recon_model)
+model_exp.compile(optimizer=Adam(lr=learning_rate), 
+                  loss=loss,
+                  loss_weights=[lwr,lwr,lwm]) 
+prefix+= str(lwr)+'_'+str(lwm)+'_'
+
 #Apply on a test image
 T1image = nibabel.load(output_path+'IXI661-HH-2788-T1.nii.gz')
 T2image = nibabel.load(output_path+'IXI661-HH-2788-T2.nii.gz')
 PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD.nii.gz')
 maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
 
-prefix = 'iclr_nowindowing'
-if use_optim == 1:
-  prefix += '_optim'
-if inverse_consistency == 1:
-  prefix += '_invc'
-if cycle_consistency == 1:
-  prefix += '_cycle'
-if identity_consistency == 1:
-  prefix += '_idc'  
-prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(T1.shape[0])
-prefix+= '_bs'+str(batch_size)
-prefix+= '_lr'+str(learning_rate)
-prefix+= '_nl'+str(n_layers)
-prefix+= '_nlr'+str(n_layers_residual)
-prefix+= '_'
-
 for e in range(epochs):
+  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  
   print('Direct mappings')
-  model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-  model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-  model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+
 
   if inverse_consistency == 1:
     print('Inverse mappings')
@@ -217,9 +231,28 @@ for e in range(epochs):
 
   if identity_consistency == 1: #no mapping so batch size could be increased
     print('Identity mappings')
-    model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+    #model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
     model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
     model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+  
+  #Save results every 5 epochs
+  if e%5 == 0:  
+    image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
+    nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
+    
+    image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
+    nibabel.save(image_T2_id,output_path+prefix+'_current'+str(e)+'_id_T2.nii.gz')
+
+    image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
+    nibabel.save(image_T2_to_T1,output_path+prefix+'_current'+str(e)+'_direct_T2_to_T1.nii.gz')
+
+
+feature_model.save(output_path+prefix+'feature_model.h5')
+recon_model.save(output_path+prefix+'recon_model.h5')
+block_PD_to_T2.save(output_path+prefix+'block_pd_to_t2.h5')
+block_T2_to_T1.save(output_path+prefix+'block_t2_to_t1.h5')
+block_T1_to_PD.save(output_path+prefix+'block_t1_to_pd.h5')
+
 
 #Encoding
 image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)

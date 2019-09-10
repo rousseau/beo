@@ -289,6 +289,23 @@ def build_one_model(init_shape, feature_model, mapping_model, reconstruction_mod
     rx = reconstruction_model(fx)    
   model = Model(inputs=ix, outputs=rx)
   return model
+
+def build_exp_model(init_shape, feature_model, mapping_model, reconstruction_model):
+  ix = Input(shape=init_shape)	
+  iy = Input(shape=init_shape)	
+  fx = feature_model(ix)   
+  fy = feature_model(iy)
+     
+  m = mapping_model(fx)
+  r = reconstruction_model(m)
+ 
+  rx =  reconstruction_model(fx)
+  ry =  reconstruction_model(fy)
+  
+  model = Model(inputs=[ix,iy], outputs=[rx,ry,r])
+  return model
+  
+
   
 def TriangleModel(init_shape, feature_shape, feature_model, block_PD_to_T2, block_T2_to_T1, block_T1_to_PD, reconstruction_model, n_layers):
 
