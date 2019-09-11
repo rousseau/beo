@@ -3,15 +3,10 @@ import nibabel
 import SimpleITK as sitk
 import numpy as np
 import keras.backend as K
+import os
+import multiprocessing
 
-
-def load_images(data_path, key, loader = 'itk', verbose = 0):  
-  """Load image data in a specified directory using a key word"""  
-  """Data can be loaded using itk or nibabel"""
-  if verbose !=0:
-    print('loading images')
-  images = []
-  #load all the images
+def get_list_of_files(data_path, key, verbose=0):
   directories = glob.glob(data_path, recursive=True)
   if verbose !=0:
     print(directories)
@@ -22,6 +17,30 @@ def load_images(data_path, key, loader = 'itk', verbose = 0):
     files = glob.glob(d+key)
     all_files.extend(files)
   all_files.sort()
+  return all_files  
+  
+def apply_cmd_on_files(output_path, files, masks, cmd):
+  if cmd == 'n4':
+    todo = 'N4BiasFieldCorrection -d 3 -s 1 '
+  
+  jobs = []  
+  pool = multiprocessing.Pool(8)
+  for (f,m) in zip(files,masks):
+    output_file = f.split('/')[-1][0:-7]+'_N4.nii.gz'
+    cmd_todo = todo+' -i '+f+' -x '+m+' -o '+output_path+'/'+output_file
+    print(cmd_todo)
+    jobs.append(cmd_todo)
+    #os.system(cmd_todo)
+  pool.map(os.system, jobs)    
+
+def load_images(data_path, key, loader = 'itk', verbose = 0):  
+  """Load image data in a specified directory using a key word"""  
+  """Data can be loaded using itk or nibabel"""
+  if verbose !=0:
+    print('loading images')
+  images = []
+  #load all the images
+  all_files = get_list_of_files(data_path, key, verbose)
   
   for file in all_files:  
     if verbose !=0:

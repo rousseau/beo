@@ -53,11 +53,11 @@ n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
 n_layers = 1
-n_layers_residual = 5
+n_layers_residual = 1
 learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 32
-epochs = 50
+epochs = 5
 use_optim = 0
 
 inverse_consistency = 0
@@ -120,18 +120,18 @@ model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 feature_model.summary()
 recon_model.summary()
 
-if load_pretrained_models == 0:  
-  print('Start by learning the auto-encoding part')
-  print('Identity mappings')
-  #The best option should be to concatenate all patches to learn over the entire set of patches
-  #However, numpy concatenation requires twice the RAM
-  for e in range(epochs):
-    model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-  
-  feature_model.save(output_path+'feature_model.h5')
-  recon_model.save(output_path+'recon_model.h5')
+#if load_pretrained_models == 0:  
+#  print('Start by learning the auto-encoding part')
+#  print('Identity mappings')
+#  #The best option should be to concatenate all patches to learn over the entire set of patches
+#  #However, numpy concatenation requires twice the RAM
+#  for e in range(epochs):
+#    model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#  
+#  feature_model.save(output_path+'feature_model.h5')
+#  recon_model.save(output_path+'recon_model.h5')
 
 if freeze_ae == 1:
   print('Freezing the AE part of the network')
@@ -237,6 +237,7 @@ for e in range(epochs):
   
   #Save results every 5 epochs
   if e%5 == 0:  
+    print('saving results')
     image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
     nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
     
