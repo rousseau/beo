@@ -52,8 +52,8 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 1
-n_layers_residual = 1
+n_layers = 10
+n_layers_residual = 5
 learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 32
@@ -196,10 +196,14 @@ model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 #Experimental
 lwr = 0.1 #loss weight reconstruction
 lwm = 1   #loss weight mapping
-model_exp = build_exp_model(init_shape, feature_model = feature_model, mapping_model = mapping_T2_to_T1, reconstruction_model = recon_model)
-model_exp.compile(optimizer=Adam(lr=learning_rate), 
+def build_it(init_shape, feature_shape, feature_model, block, recon_model, learning_rate, loss, n_layers):
+  mapping = build_forward_model(init_shape=feature_shape, block_model=block, n_layers=n_layers)
+  model =   build_exp_model(init_shape, feature_model = feature_model, mapping_model = mapping, reconstruction_model = recon_model)
+  model.compile(optimizer=Adam(lr=learning_rate), 
                   loss=loss,
                   loss_weights=[lwr,lwr,lwm]) 
+  return model
+   
 prefix+= str(lwr)+'_'+str(lwm)+'_'
 
 #Apply on a test image
@@ -208,44 +212,62 @@ T2image = nibabel.load(output_path+'IXI661-HH-2788-T2.nii.gz')
 PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD.nii.gz')
 maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
 
-for e in range(epochs):
-  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  
-  print('Direct mappings')
-  #model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-  #model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-  #model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=1)
+model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=2)
+model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-  if inverse_consistency == 1:
-    print('Inverse mappings')
-    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-    
-  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
-    print('Cycle mappings')
-    model_cycle_PD.fit(x=PD, y=PD, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
-    model_cycle_T2.fit(x=T2, y=T2, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
-    model_cycle_T1.fit(x=T1, y=T1, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=4)
+model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-  if identity_consistency == 1: #no mapping so batch size could be increased
-    print('Identity mappings')
-    #model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-  
-  #Save results every 5 epochs
-  if e%5 == 0:  
-    print('saving results')
-    image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
-    nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
-    
-    image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
-    nibabel.save(image_T2_id,output_path+prefix+'_current'+str(e)+'_id_T2.nii.gz')
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=8)
+model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-    image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
-    nibabel.save(image_T2_to_T1,output_path+prefix+'_current'+str(e)+'_direct_T2_to_T1.nii.gz')
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=16)
+model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+
+ 
+#for e in range(epochs):
+#  
+#  model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers)
+#  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+#  
+#  print('Direct mappings')
+#  #model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#  #model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#  #model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#
+#
+#  if inverse_consistency == 1:
+#    print('Inverse mappings')
+#    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+#    
+#  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
+#    print('Cycle mappings')
+#    model_cycle_PD.fit(x=PD, y=PD, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+#    model_cycle_T2.fit(x=T2, y=T2, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+#    model_cycle_T1.fit(x=T1, y=T1, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+#
+#  if identity_consistency == 1: #no mapping so batch size could be increased
+#    print('Identity mappings')
+#    #model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+#  
+#  #Save results every 5 epochs
+#  if e%5 == 0:  
+#    print('saving results')
+#    image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
+#    nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
+#    
+#    image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
+#    nibabel.save(image_T2_id,output_path+prefix+'_current'+str(e)+'_id_T2.nii.gz')
+#
+#    image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
+#    nibabel.save(image_T2_to_T1,output_path+prefix+'_current'+str(e)+'_direct_T2_to_T1.nii.gz')
 
 
 feature_model.save(output_path+prefix+'feature_model.h5')

@@ -253,7 +253,9 @@ def build_forward_model(init_shape, block_model, n_layers):
   x = input_block
   for i in range(n_layers):
     xx = block_model(x)
-    x = Add()([xx,x])   
+    #Add scaling for multiresolution optimization
+    xx = Lambda(lambda x: x * 1.0/n_layers)(xx)
+    x = Add()([xx,x])     
   output_block = x
   
   model = Model(inputs=input_block, outputs=output_block)
