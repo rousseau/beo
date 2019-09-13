@@ -10,7 +10,7 @@ from os.path import expanduser
 
 def get_ixi_4darrays():
   home = expanduser("~")
-  ixi_path = home+'/Exp/IXImedium/'
+  ixi_path = home+'/Exp/IXI-HH-training/'
   T1s = nbimages_to_4darrays(load_images(ixi_path, key='*T1.nii.gz', loader='nb',verbose=1))
   T2s = nbimages_to_4darrays(load_images(ixi_path, key='*T2.nii.gz', loader='nb',verbose=1))
   PDs = nbimages_to_4darrays(load_images(ixi_path, key='*PD.nii.gz', loader='nb',verbose=1))

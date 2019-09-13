@@ -21,7 +21,7 @@ def get_list_of_files(data_path, key, verbose=0):
   
 def apply_cmd_on_files(output_path, files, masks, cmd):
   if cmd == 'n4':
-    todo = 'N4BiasFieldCorrection -d 3 -s 1 '
+    todo = 'N4BiasFieldCorrection -d 3 -s 4 '
   
   jobs = []  
   pool = multiprocessing.Pool(8)

@@ -22,10 +22,10 @@ output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
 
-load_pickle_patches = 1
+load_pickle_patches = 0
 
 if load_pickle_patches == 0:
-  n_patches = 5000
+  n_patches = 2500
   (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
   
   joblib.dump(T1,home+'/Exp/T1.pkl', compress=True)
@@ -194,7 +194,7 @@ model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
 
 #Experimental
-lwr = 0.1 #loss weight reconstruction
+lwr = 0.5 #loss weight reconstruction
 lwm = 1   #loss weight mapping
 def build_it(init_shape, feature_shape, feature_model, block, recon_model, learning_rate, loss, n_layers):
   mapping = build_forward_model(init_shape=feature_shape, block_model=block, n_layers=n_layers)
@@ -207,13 +207,11 @@ def build_it(init_shape, feature_shape, feature_model, block, recon_model, learn
 prefix+= str(lwr)+'_'+str(lwm)+'_'
 
 #Apply on a test image
-T1image = nibabel.load(output_path+'IXI661-HH-2788-T1.nii.gz')
-T2image = nibabel.load(output_path+'IXI661-HH-2788-T2.nii.gz')
-PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD.nii.gz')
+T1image = nibabel.load(output_path+'IXI661-HH-2788-T1_N4.nii.gz')
+T2image = nibabel.load(output_path+'IXI661-HH-2788-T2_N4.nii.gz')
+PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD_N4.nii.gz')
 maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=1)
-model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
 model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=2)
 model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
@@ -221,10 +219,10 @@ model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=
 model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=4)
 model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=8)
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=6)
 model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=16)
+model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=10)
 model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
  
