@@ -5,6 +5,7 @@ import numpy as np
 import keras.backend as K
 import os
 import multiprocessing
+from keras.optimizers import Adam
 
 def get_list_of_files(data_path, key, verbose=0):
   directories = glob.glob(data_path, recursive=True)
@@ -148,5 +149,12 @@ def apply_model_on_3dimage(model,image,mask=None):
   
   return output_image
   
-  
+def freeze_model(model, freeze=1):
+  if freeze == 1:
+    for layer in model.layers:
+      layer.trainable = False
+  else:
+    for layer in model.layers:
+      layer.trainable = True    
+  model.compile(optimizer=Adam()) #Dummy optimizer   
   

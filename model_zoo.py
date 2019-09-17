@@ -2,7 +2,7 @@ import keras.backend as K
 from keras.models import Model
 from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda
 from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
-from keras.layers import concatenate
+from keras.layers import concatenate, Flatten
 from keras.regularizers import l1, l2
 
 def conv_bn_relu(input,n_filters=128,strides=1):
@@ -247,14 +247,18 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   model = Model(inputs=input_block, outputs=output_block)
   return model
 
-def build_forward_model(init_shape, block_model, n_layers):
+def build_forward_model(init_shape, block_model, n_layers, scaling=None):
   input_block = Input(shape=init_shape)
 
+  if scaling is None:
+    scaling = 1.0/n_layers
+    print('Scaling in forward model : '+str(scaling))
+    
   x = input_block
   for i in range(n_layers):
     xx = block_model(x)
     #Add scaling for multiresolution optimization
-    xx = Lambda(lambda x: x * 1.0/n_layers)(xx)
+    xx = Lambda(lambda x: x * scaling)(xx)
     x = Add()([xx,x])     
   output_block = x
   
@@ -307,7 +311,21 @@ def build_exp_model(init_shape, feature_model, mapping_model, reconstruction_mod
   model = Model(inputs=[ix,iy], outputs=[rx,ry,r])
   return model
   
+def fm_model(init_shape, feature_model, mapping_model):
+  ix = Input(shape=init_shape)	
+  iy = Input(shape=init_shape)	
+  fx = feature_model(ix)   
+  fy = feature_model(iy)
+     
+  m = mapping_model(fx)
+  err = Subtract()([fy,m])
+  err = Lambda(lambda x:K.abs(x))(err)
+  err = GlobalAveragePooling3D()(err)
+  err = Lambda(lambda x: K.mean(x, axis=1))(err) 
+  err = Reshape((1,))(err)
 
+  model = Model(inputs=[ix,iy], outputs=err)
+  return model  
   
 def TriangleModel(init_shape, feature_shape, feature_model, block_PD_to_T2, block_T2_to_T1, block_T1_to_PD, reconstruction_model, n_layers):
 

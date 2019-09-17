@@ -2,7 +2,7 @@ from dataset import get_ixi_3dpatches
 from model_zoo import ResNet3D, AutoEncoder3D, CHP, TriangleModel
 from model_zoo import build_feature_model, build_recon_model, build_block_model
 from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition
-from model_zoo import build_exp_model
+from model_zoo import build_exp_model, fm_model
 import keras.backend as K
 from keras.optimizers import Adam
 import numpy as np
@@ -10,6 +10,7 @@ import nibabel
 from utils import apply_model_on_3dimage
 from keras.models import load_model
 import joblib
+from sklearn.utils import check_random_state
 
 #Package from OpenAI for GPU memory saving
 #https://github.com/cybertronai/gradient-checkpointing
@@ -22,7 +23,7 @@ output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 40
 
-load_pickle_patches = 0
+load_pickle_patches = 1
 
 if load_pickle_patches == 0:
   n_patches = 2500
@@ -52,12 +53,12 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 10
+n_layers = 1
 n_layers_residual = 5
 learning_rate = 0.0001
 loss = 'mae' 
-batch_size = 32
-epochs = 5
+batch_size = 32 
+epochs = 20
 use_optim = 0
 
 inverse_consistency = 0
@@ -164,7 +165,7 @@ model_PD_to_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 model_T1_to_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 
-model_PD_to_T2.summary()
+#model_PD_to_T2.summary()
 
 #Inverse consistency
 mapping_T2_to_PD = build_backward_model(init_shape=feature_shape, block_model=block_PD_to_T2, n_layers=n_layers)
@@ -192,10 +193,43 @@ model_cycle_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_cycle_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 
+def subsample(sampling=0.1):
+  random_state = None
+  rng = check_random_state(random_state)
+  if sampling <= 1:
+    n_samples = int(T1.shape[0]*sampling)
+  else:
+    n_samples = int(sampling)
+  index = rng.randint(T1.shape[0], size=n_samples)
+  return T1[index,:,:,:,:],T2[index,:,:,:,:],PD[index,:,:,:,:]
 
+def eval_all():
+  subT1, subT2, subPD = subsample(sampling=0.01)
+  print('Evaluating all models on subsampled data')
+  print('Identity:')
+  print(model_identity.evaluate(x=subPD, y=subPD, batch_size=int(batch_size)))
+  print(model_identity.evaluate(x=subT1, y=subT1, batch_size=int(batch_size)))
+  print(model_identity.evaluate(x=subT2, y=subT2, batch_size=int(batch_size)))
+  
+  print('Direct mappings:')
+  print(model_PD_to_T2.evaluate(x=subPD, y=subT2, batch_size=batch_size))   
+  print(model_T2_to_T1.evaluate(x=subT2, y=subT1, batch_size=batch_size))   
+  print(model_T1_to_PD.evaluate(x=subT1, y=subPD, batch_size=batch_size))
+
+  print('Inverse mappings:')
+  print(model_T2_to_PD.evaluate(x=subT2, y=subPD, batch_size=batch_size))    
+  print(model_T1_to_T2.evaluate(x=subT1, y=subT2, batch_size=batch_size))    
+  print(model_PD_to_T1.evaluate(x=subPD, y=subT1, batch_size=batch_size))   
+    
+  print('Cycle mappings')
+  print(model_cycle_PD.evaluate(x=subPD, y=subPD, batch_size=int(batch_size/3)))    
+  print(model_cycle_T2.evaluate(x=subT2, y=subT2, batch_size=int(batch_size/3)))    
+  print(model_cycle_T1.evaluate(x=subT1, y=subT1, batch_size=int(batch_size/3)))    
+   
+  
 #Experimental
-lwr = 0.5 #loss weight reconstruction
-lwm = 1   #loss weight mapping
+lwr = 1 #loss weight reconstruction
+lwm = 0   #loss weight mapping
 def build_it(init_shape, feature_shape, feature_model, block, recon_model, learning_rate, loss, n_layers):
   mapping = build_forward_model(init_shape=feature_shape, block_model=block, n_layers=n_layers)
   model =   build_exp_model(init_shape, feature_model = feature_model, mapping_model = mapping, reconstruction_model = recon_model)
@@ -213,59 +247,170 @@ PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD_N4.nii.gz')
 maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
 
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=2)
-model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+#model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=1)
+#model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=4)
-model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+#model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=4)
+#model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=4, verbose=1, shuffle=True)
+#
+#model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=6)
+#model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=3, verbose=1, shuffle=True)
+#
+#model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=8)
+#model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=2, verbose=1, shuffle=True)
+#
+#model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=10)
+#model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=6)
-model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+subsampling = 0.1 
+for n_layers in [1]:#,2,4,6,8,10]:
+  print('Number of layers: '+str(n_layers))
+  #Direct mapping
+  mapping_PD_to_T2 = build_forward_model(init_shape=feature_shape, block_model=block_PD_to_T2, n_layers=n_layers)
+  mapping_T2_to_T1 = build_forward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
+  mapping_T1_to_PD = build_forward_model(init_shape=feature_shape, block_model=block_T1_to_PD, n_layers=n_layers)
+  
+  model_PD_to_T2 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_PD_to_T2, reconstruction_model = recon_model)
+  model_T2_to_T1 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_T2_to_T1, reconstruction_model = recon_model)
+  model_T1_to_PD = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_T1_to_PD, reconstruction_model = recon_model)
+  
+  model_PD_to_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_T1_to_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+  #model_PD_to_T2.summary()
+  
+  #Inverse consistency
+  mapping_T2_to_PD = build_backward_model(init_shape=feature_shape, block_model=block_PD_to_T2, n_layers=n_layers)
+  mapping_T1_to_T2 = build_backward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
+  mapping_PD_to_T1 = build_backward_model(init_shape=feature_shape, block_model=block_T1_to_PD, n_layers=n_layers)
+  
+  model_T2_to_PD = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_T2_to_PD, reconstruction_model = recon_model)
+  model_T1_to_T2 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_T1_to_T2, reconstruction_model = recon_model)
+  model_PD_to_T1 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_PD_to_T1, reconstruction_model = recon_model)
+  
+  model_T2_to_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_T1_to_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_PD_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+  #Cycle forward consistency (by mapping composition)
+  mapping_cycle_PD = mapping_composition(init_shape = feature_shape, mappings=[mapping_PD_to_T2,mapping_T2_to_T1,mapping_T1_to_PD])
+  mapping_cycle_T1 = mapping_composition(init_shape = feature_shape, mappings=[mapping_T1_to_PD,mapping_PD_to_T2,mapping_T2_to_T1])
+  mapping_cycle_T2 = mapping_composition(init_shape = feature_shape, mappings=[mapping_T2_to_T1,mapping_T1_to_PD,mapping_PD_to_T2])
+  
+  model_cycle_PD = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_cycle_PD, reconstruction_model = recon_model)
+  model_cycle_T2 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_cycle_T2, reconstruction_model = recon_model)
+  model_cycle_T1 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_cycle_T1, reconstruction_model = recon_model)
+  
+  model_cycle_PD.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_cycle_T2.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  model_cycle_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
 
-model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers=10)
-model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+  model_exp = fm_model(init_shape, feature_model, mapping_T2_to_T1)
+  model_exp.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+  #Experiences de lundi 
+  model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=5, verbose=1, shuffle=True)
+  model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)
+  model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers)
+  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
+  import keras.backend as K
+  from keras.models import Model
+  from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda
+  from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
+  from keras.layers import concatenate, Flatten
+  from keras.regularizers import l1, l2
+  ix = Input(shape=init_shape)	
+  iy = Input(shape=init_shape)	
+  fx = feature_model(ix)   
+  fy = feature_model(iy)
+     
+  m = mapping_T2_to_T1(fx)
+  r = recon_model(m)
  
-#for e in range(epochs):
-#  
-#  model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers)
-#  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-#  
-#  print('Direct mappings')
-#  #model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#  #model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#  #model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#
-#
-#  if inverse_consistency == 1:
-#    print('Inverse mappings')
-#    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
-#    
-#  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
-#    print('Cycle mappings')
-#    model_cycle_PD.fit(x=PD, y=PD, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
-#    model_cycle_T2.fit(x=T2, y=T2, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
-#    model_cycle_T1.fit(x=T1, y=T1, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
-#
-#  if identity_consistency == 1: #no mapping so batch size could be increased
-#    print('Identity mappings')
-#    #model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-#    model_identity.fit(x=T2, y=T2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-#    model_identity.fit(x=T1, y=T1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
-#  
-#  #Save results every 5 epochs
-#  if e%5 == 0:  
-#    print('saving results')
-#    image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
-#    nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
-#    
-#    image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
-#    nibabel.save(image_T2_id,output_path+prefix+'_current'+str(e)+'_id_T2.nii.gz')
-#
-#    image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
-#    nibabel.save(image_T2_to_T1,output_path+prefix+'_current'+str(e)+'_direct_T2_to_T1.nii.gz')
+  rx =  recon_model(fx)
+  ry =  recon_model(fy)
+  
+  toto = Model(inputs=[ix,iy], outputs=[rx,ry,r])
+  toto.compile(optimizer=Adam(lr=learning_rate), 
+                  loss=loss,
+                  loss_weights=[0.0,1.0,0.0]) 
+  toto.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+
+  toto = Model(inputs=[ix,iy], outputs=[ry,r])
+  toto.compile(optimizer=Adam(lr=learning_rate), 
+                  loss=loss,
+                  loss_weights=[1.0,0.0]) 
+  toto.fit(x=[T2,T1], y=[T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+
+  
+  toto = Model(inputs=ix, outputs=rx)
+  toto.compile(optimizer=Adam(lr=learning_rate), 
+                  loss=loss) 
+  toto.fit(x=T1, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  
+  
+  for e in range(epochs):
+    
+    eval_all()
+    print('Epoch : '+str(e))
+    
+    for i in range(int(1/subsampling)):
+      subT1, subT2, subPD = subsample(subsampling)
+  #  
+  #  model_exp = build_it(init_shape, feature_shape, feature_model, block_T2_to_T1, recon_model, learning_rate, loss, n_layers)
+  #  model_exp.fit(x=[T2,T1], y=[T2,T1,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  #  
+  #  print('Direct mappings')
+  #  #model_PD_to_T2.fit(x=PD, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+      #model_T2_to_T1.fit(x=subT2, y=subT1, batch_size=batch_size, epochs=10, verbose=1, shuffle=True)    
+      model_exp.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+      model_exp.fit(x=[subT2,subT1], y=np.zeros(subT2.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+      
+  #  #model_T1_to_PD.fit(x=T1, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #
+  
+  #
+  #  if inverse_consistency == 1:
+  #    print('Inverse mappings')
+  #    model_T2_to_PD.fit(x=T2, y=PD, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #    model_T1_to_T2.fit(x=T1, y=T2, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #    model_PD_to_T1.fit(x=PD, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)    
+  #    
+  #  if cycle_consistency == 1: #Cycle consistency requires three times more GPU RAM than direct mapping
+  #    print('Cycle mappings')
+  #    model_cycle_PD.fit(x=PD, y=PD, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+  #    model_cycle_T2.fit(x=T2, y=T2, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+  #    model_cycle_T1.fit(x=T1, y=T1, batch_size=int(batch_size/3), epochs=1, verbose=1, shuffle=True)    
+  #
+  #  if identity_consistency == 1: #no mapping so batch size could be increased
+  #    print('Identity mappings')
+  #    #model_identity.fit(x=PD, y=PD, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)  
+      for layer in feature_model.layers:
+        layer.trainable = False
+      feature_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+      model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+  
+      model_identity.fit(x=subT2, y=subT2, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)   
+      model_identity.fit(x=subT1, y=subT1, batch_size=int(batch_size), epochs=1, verbose=1, shuffle=True)    
+      
+      for layer in feature_model.layers:
+        layer.trainable = True
+      feature_model.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
+
+  #  
+    #Save results every 5 epochs
+    if e%5 == 0:  
+      print('saving results')
+      image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
+      nibabel.save(image_T1_id,output_path+prefix+'_current'+str(e)+'_id_T1.nii.gz')
+      
+      image_T2_id = apply_model_on_3dimage(model_identity, T2image, mask=maskarray)
+      nibabel.save(image_T2_id,output_path+prefix+'_current'+str(e)+'_id_T2.nii.gz')
+  
+      image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
+      nibabel.save(image_T2_to_T1,output_path+prefix+'_current'+str(e)+'_direct_T2_to_T1.nii.gz')
 
 
 feature_model.save(output_path+prefix+'feature_model.h5')
@@ -309,6 +454,16 @@ nibabel.save(image_PD_to_T2_to_T1,output_path+prefix+'composition_PD_to_T2_to_T1
 #Cycle
 image_PD_to_PD = apply_model_on_3dimage(model_cycle_PD, PDimage, mask=maskarray)
 nibabel.save(image_PD_to_PD,output_path+prefix+'cycle_PD_to_PD.nii.gz')
+
+#Interpolation
+for l in range(11):
+  mapping_T2_to_T1 = build_forward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=l, scaling=0.1)
+  model_T2_to_T1 = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_T2_to_T1, reconstruction_model = recon_model)
+  model_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss)   
+  
+  image_T2_to_T1 = apply_model_on_3dimage(model_T2_to_T1, T2image, mask=maskarray)
+  nibabel.save(image_T2_to_T1,output_path+prefix+'interpolation_T2_to_T1_'+str(l)+'.nii.gz')
+    
 
 #CHPmodel_T2_to_T1 = CHP()
 #CHPmodel_T2_to_T1.compile(optimizer=Adam(lr=learning_rate), loss=loss) 
