@@ -53,11 +53,11 @@ print(T1.shape)
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 16
+n_filters = 32
 n_layers = 1
 n_layers_residual = 5
 learning_rate = 0.0001
-loss = 'mse' 
+loss = 'mae' 
 batch_size = 32 
 epochs = 50
 use_optim = 0
@@ -214,7 +214,7 @@ for e in range(epochs):
     model_reversible_T2_to_T1.train_on_batch(x=subT1, y=subT1)
     
     epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
-    #model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
+    model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
     
     
     #epoch_end_to_end_loss.append(model_T2_to_T1.train_on_batch(x=subT2, y=subT1))
@@ -225,9 +225,9 @@ for e in range(epochs):
     
     #epoch_mapping_loss.append(model_exp.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0]))) 
     
-    #if i%5 ==0: 
-    #  epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
-    #  epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
+    if i%5 ==0: 
+      epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
+      epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
     #  model_identity.train_on_batch(x=subPD, y=subPD)      
     
     progress_bar.update(i + 1)
