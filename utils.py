@@ -141,20 +141,14 @@ def apply_model_on_3dimage(model,image,mask=None):
     array = np.moveaxis(array, -1, 1)  
     
   output_array = model.predict(array, batch_size=1)
+
+  output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,:,:,:,:]), image.affine)
   
-  if K.image_data_format() == 'channels_first':
-    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,0,:,:,:]), image.affine)
-  else:
-    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,:,:,:,0]), image.affine)  
+#  if K.image_data_format() == 'channels_first':
+#    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,0,:,:,:]), image.affine)
+#  else:
+#    output_image = nibabel.Nifti1Image(np.squeeze(output_array[0,:,:,:,0]), image.affine)  
   
   return output_image
   
-def freeze_model(model, freeze=1):
-  if freeze == 1:
-    for layer in model.layers:
-      layer.trainable = False
-  else:
-    for layer in model.layers:
-      layer.trainable = True    
-  model.compile(optimizer=Adam()) #Dummy optimizer   
   

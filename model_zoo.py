@@ -4,6 +4,7 @@ from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lam
 from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
 from keras.layers import concatenate, Flatten
 from keras.regularizers import l1, l2
+from keras.constraints import max_norm
 
 def conv_bn_relu(input,n_filters=128,strides=1):
   
@@ -185,12 +186,12 @@ def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
   input_recon = Input(shape=init_shape)
 
   recon=(UpSampling3D((2, 2, 2)))(input_recon)  
-  recon = Conv3D(filters=16, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(recon)
+  recon = Conv3D(filters=n_filters, kernel_size=(3, 3, 3), strides=1, use_bias=False, padding='same')(recon)
   recon = BatchNormalization(axis=channel_axis)(recon)
   recon = Activation('relu')(recon)
   
   recon = Conv3D(filters=n_channelsY, kernel_size=(kernel_size, kernel_size, kernel_size), strides=1, use_bias=False, padding='same')(recon)
-  recon=(Activation('linear'))(recon)
+#  recon=(Activation('linear'))(recon)
   
   model = Model(inputs=input_recon, outputs=recon)
   return model
@@ -234,16 +235,97 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
     for i in range(n_layers):
       y = Conv3D((int)(n_filters*ratio), (3, 3, 3), padding='same', kernel_initializer='he_normal',
                       use_bias=False,
-                      strides=1)(x)
+                      strides=1,
+                      kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(x)
       y = Activation('relu')(y)
   
       y = Conv3D(n_filters, (3, 3, 3), padding='same', kernel_initializer='he_normal',
                     use_bias=False,
-                    strides=1)(y)
+                    strides=1,
+                    kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
+      #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
       x = Add()([y,x])  
-
+      
       
   output_block = x  
+  model = Model(inputs=input_block, outputs=output_block)
+  return model
+
+def build_reversible_forward_model(init_shape, block_f, block_g, n_layers, scaling=None):
+  input_block = Input(shape=init_shape)
+
+  if scaling is None:
+    scaling = 1.0/n_layers
+    print('Scaling in forward model : '+str(scaling))
+    
+  x = input_block
+
+  #Split channels
+  if K.image_data_format() == 'channels_last':
+    x1 = Lambda(lambda x: x[:,:,:,:,:(int)(K.int_shape(x)[-1]/2)])(x)
+    x2 = Lambda(lambda x: x[:,:,:,:,(int)(K.int_shape(x)[-1]/2):])(x)
+    channel_axis = -1
+  else:
+    x1 = Lambda(lambda x: x[:,:(int)(K.int_shape(x)[-1]/2),:,:,:])(x)
+    x2 = Lambda(lambda x: x[:,(int)(K.int_shape(x)[-1]/2):,:,:,:])(x)
+    channel_axis = 1
+
+
+  for i in range(n_layers):    
+    
+    xx = block_f(x2)
+    y1= Add()([xx,x1])
+    
+    xx = block_g(y1)
+    y2= Add()([xx,x2])
+
+    x1 = y1
+    x2 = y2    
+
+  x = concatenate([x1,x2], axis=channel_axis)    
+    
+  #x = Activation('tanh')(x)#Limit the max/min fo the added residual
+  output_block = x
+  
+  model = Model(inputs=input_block, outputs=output_block)
+  return model
+
+def build_reversible_backward_model(init_shape, block_f, block_g, n_layers, scaling=None):
+  input_block = Input(shape=init_shape)
+
+  if scaling is None:
+    scaling = 1.0/n_layers
+    print('Scaling in backward model : '+str(scaling))
+    
+  x = input_block
+
+  #Split channels
+  if K.image_data_format() == 'channels_last':
+    x1 = Lambda(lambda x: x[:,:,:,:,:(int)(K.int_shape(x)[-1]/2)])(x)
+    x2 = Lambda(lambda x: x[:,:,:,:,(int)(K.int_shape(x)[-1]/2):])(x)
+    channel_axis = -1
+  else:
+    x1 = Lambda(lambda x: x[:,:(int)(K.int_shape(x)[-1]/2),:,:,:])(x)
+    x2 = Lambda(lambda x: x[:,(int)(K.int_shape(x)[-1]/2):,:,:,:])(x)
+    channel_axis = 1
+
+
+  for i in range(n_layers):    
+    
+    xx = block_g(x1)
+    y2= Subtract()([x2,xx])
+    
+    xx = block_g(y2)
+    y1= Subtract()([x1,xx])
+
+    x1 = y1
+    x2 = y2    
+
+  x = concatenate([x1,x2], axis=channel_axis)    
+    
+  #x = Activation('tanh')(x)#Limit the max/min fo the added residual
+  output_block = x
+  
   model = Model(inputs=input_block, outputs=output_block)
   return model
 
@@ -260,6 +342,9 @@ def build_forward_model(init_shape, block_model, n_layers, scaling=None):
     #Add scaling for multiresolution optimization
     xx = Lambda(lambda x: x * scaling)(xx)
     x = Add()([xx,x])     
+    
+    
+  #x = Activation('tanh')(x)#Limit the max/min fo the added residual
   output_block = x
   
   model = Model(inputs=input_block, outputs=output_block)
@@ -287,12 +372,18 @@ def mapping_composition(init_shape, mappings):
 
 def build_one_model(init_shape, feature_model, mapping_model, reconstruction_model):
   ix = Input(shape=init_shape)	
-  fx = feature_model(ix)   
+  if feature_model is not None:
+    fx = feature_model(ix)   
+  else:
+    fx = ix
   if mapping_model is not None:
     mx = mapping_model(fx)
+  else:
+    mx = fx
+  if reconstruction_model is not None:  
     rx = reconstruction_model(mx)
   else:
-    rx = reconstruction_model(fx)    
+    rx = mx    
   model = Model(inputs=ix, outputs=rx)
   return model
 
@@ -318,6 +409,7 @@ def fm_model(init_shape, feature_model, mapping_model):
   fy = feature_model(iy)
      
   m = mapping_model(fx)
+  
   err = Subtract()([fy,m])
   err = Lambda(lambda x:K.abs(x))(err)
   err = GlobalAveragePooling3D()(err)
