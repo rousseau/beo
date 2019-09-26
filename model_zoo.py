@@ -401,6 +401,32 @@ def build_exp_model(init_shape, feature_model, mapping_model, reconstruction_mod
   
   model = Model(inputs=[ix,iy], outputs=[rx,ry,r])
   return model
+
+def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
+  ix = Input(shape=init_shape)	
+  iy = Input(shape=init_shape)	
+  
+  fx = feature_model(ix)   
+  fy = feature_model(iy)
+  
+  #Forward     
+  mx2y = mapping_x_to_y(fx)
+  rx2y = reconstruction_model(mx2y)
+  #Backward
+  my2x = mapping_y_to_x(fy)
+  ry2x = reconstruction_model(my2x)
+
+  #Identity constraints
+  my2y = mapping_x_to_y(fy)
+  ry2y = reconstruction_model(my2y)
+  mx2x = mapping_y_to_x(fx)
+  rx2x = reconstruction_model(mx2x)
+  
+  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y])
+  return model
+
+
+
   
 def fm_model(init_shape, feature_model, mapping_model):
   ix = Input(shape=init_shape)	

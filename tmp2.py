@@ -2,7 +2,7 @@ from dataset import get_ixi_3dpatches
 from model_zoo import ResNet3D, AutoEncoder3D, CHP, TriangleModel
 from model_zoo import build_feature_model, build_recon_model, build_block_model
 from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition
-from model_zoo import build_exp_model, fm_model, build_reversible_forward_model, build_reversible_backward_model
+from model_zoo import build_exp_model, fm_model, build_reversible_forward_model, build_reversible_backward_model, build_4_model
 import keras.backend as K
 from keras.optimizers import Adam
 import numpy as np
@@ -53,10 +53,10 @@ print(T1.shape)
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 32
+n_filters = 16
 n_layers = 1
 n_layers_residual = 5
-learning_rate = 0.0001
+learning_rate = 0.001
 loss = 'mae' 
 batch_size = 32 
 epochs = 50
@@ -156,7 +156,10 @@ model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_warped = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_reversible_T2_to_T1, reconstruction_model = None)
 model_warped.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
-
+model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, model_reversible_T1_to_T2, recon_model)
+model_all.compile(optimizer=Adam(lr=learning_rate), 
+                  loss=loss,
+                  loss_weights=[1,1,1,1]) 
 
 #models = []
 #models.append(model_identity)
@@ -209,12 +212,15 @@ for e in range(epochs):
     subT2 = T2[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
     subPD = PD[index[i*batch_size:(i+1)*batch_size],:,:,:,:]    
     
+    #All
+    epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=[subT1,subT2,subT2,subT1]))
     #Reversible
-    epoch_end_to_end_loss.append(model_reversible_T2_to_T1.train_on_batch(x=subT2, y=subT1))
-    model_reversible_T2_to_T1.train_on_batch(x=subT1, y=subT1)
-    
-    epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
-    model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
+    #epoch_end_to_end_loss.append(model_reversible_T2_to_T1.train_on_batch(x=subT2, y=subT1))
+    #epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
+
+    #if i%5 ==0:
+    #model_reversible_T2_to_T1.train_on_batch(x=subT1, y=subT1)
+    #  model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
     
     
     #epoch_end_to_end_loss.append(model_T2_to_T1.train_on_batch(x=subT2, y=subT1))
@@ -225,9 +231,9 @@ for e in range(epochs):
     
     #epoch_mapping_loss.append(model_exp.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0]))) 
     
-    if i%5 ==0: 
-      epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
-      epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
+    #if i%5 ==0: 
+    #  epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
+    #  epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
     #  model_identity.train_on_batch(x=subPD, y=subPD)      
     
     progress_bar.update(i + 1)
