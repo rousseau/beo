@@ -1,0 +1,66 @@
+Stage PH Mignot, projet courtois Neuromod (Laboratoire SIMEXP de Pierre Bellec)
+Imitation de style de jeux videos
+
+lien entre comportement étrange et surapprentissage : juste une interprétation? 
+
+Influence de la taille de la base de données?
+
+Entrainement indépendant : problème de convergence? (on s'éloigne de la philosophie end-to-end du deep learning)
+
+
+Compression des données "image" (128): ACP, conv AE
+Classification : kNN (77%), LSTM (81%)
+Prédiction : kNN, LSTM
+
+Q ACP : référence à un site web "lazyprogrammer". Pourquoi ne pas utiliser le livre de Bishop?
+
+époques -> epochs
+
+Q : pour le choix de ce jeu? pourquoi ne pas utiliser une base déjà existante?
+Q : qu'est-ce qui a guidé le choix des méthodes? (le choix du knn ne paraît très judicieux par exemple)
+Q : quel est le lien entre l'ACP et un AE?
+Q : paramètres... dimension ou nombre de paramètres du modèle?
+Q : dimension d'un extrait ? (128*15 -> espace de très grande dimension)
+Q : impact de la temporalité?
+Q : gestion du "déséquilibre"?
+Q : lien avec un GAN?
+Q : quel apport pour la compréhension du fonctionnement du cerveau?
+
+Q : modélisation de la temporalité ?
+
+Q : déroulement du stage, quelle période pour chaque étape?
+
+Que veut dire stabilité de style?
+Comment quantifier un style?
+
+Chaine complète, mais très basique. Quel état de l'art?
+
+Pas de conclusion ...
+
+Valérie : 
+- limite de l'analyse quantitative proposée
+- 
+
+--------------------------------------------
+
+Quelle spécificité ? (reconnaissance d'objets)
+Robustesse ?
+Misconfusion ?
+Situation réelle?
+Pourquoi ne pas prendre des images de test similaires au training ?
+Données / classe équilibrée? Nombre de classes?
+Augmentation de données?
+Comment gérer une nouvelle montre?
+Quel est le cahier des charges? (précision demandée -> 80%)
+Nombre minimum d'exemples pour une bonne classification
+Heatmap
+
+
+
+
+
+
+
+
+
+

@@ -315,7 +315,7 @@ def build_reversible_backward_model(init_shape, block_f, block_g, n_layers, scal
     xx = block_g(x1)
     y2= Subtract()([x2,xx])
     
-    xx = block_g(y2)
+    xx = block_f(y2)
     y1= Subtract()([x1,xx])
 
     x1 = y1
@@ -416,16 +416,52 @@ def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, rec
   my2x = mapping_y_to_x(fy)
   ry2x = reconstruction_model(my2x)
 
-  #Identity constraints
+  #Identity mapping constraints
   my2y = mapping_x_to_y(fy)
   ry2y = reconstruction_model(my2y)
   mx2x = mapping_y_to_x(fx)
   rx2x = reconstruction_model(mx2x)
+
+  #Autoencoder constraints
+  idy2y = reconstruction_model(fy)
+  idx2x = reconstruction_model(fx)  
+
+  #Errors  
+  errx2y = Subtract()([rx2y,iy])
+  errx2y = Lambda(lambda x:K.abs(x))(errx2y)
+  errx2y = GlobalAveragePooling3D()(errx2y)
+  errx2y = Reshape((1,))(errx2y)
+
+  erry2x = Subtract()([ry2x,ix])
+  erry2x = Lambda(lambda x:K.abs(x))(erry2x)
+  erry2x = GlobalAveragePooling3D()(erry2x)
+  erry2x = Reshape((1,))(erry2x)
   
-  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y])
+  errx2x = Subtract()([rx2x,ix])
+  errx2x = Lambda(lambda x:K.abs(x))(errx2x)
+  errx2x = GlobalAveragePooling3D()(errx2x)
+  errx2x = Reshape((1,))(errx2x)
+  
+  erry2y = Subtract()([ry2y,iy])
+  erry2y = Lambda(lambda x:K.abs(x))(erry2y)
+  erry2y = GlobalAveragePooling3D()(erry2y)
+  erry2y = Reshape((1,))(erry2y)
+  
+  erridx = Subtract()([idx2x,ix])
+  erridx = Lambda(lambda x:K.abs(x))(erridx)
+  erridx = GlobalAveragePooling3D()(erridx)
+  erridx = Reshape((1,))(erridx)
+
+  erridy = Subtract()([idy2y,iy])
+  erridy = Lambda(lambda x:K.abs(x))(erridy)
+  erridy = GlobalAveragePooling3D()(erridy)
+  erridy = Reshape((1,))(erridy)  
+  
+  errsum = Add()([errx2y, erry2x, errx2x, erry2y, erridx, erridy])
+
+  #model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,idx2x,idy2y])
+  model = Model(inputs=[ix,iy], outputs=errsum)
   return model
-
-
 
   
 def fm_model(init_shape, feature_model, mapping_model):

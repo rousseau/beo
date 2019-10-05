@@ -22,12 +22,12 @@ from os.path import expanduser
 home = expanduser("~")
 output_path = home+'/Sync/Experiments/IXI/'
 
-patch_size = 40
+patch_size = 50
 
 load_pickle_patches = 1
 
 if load_pickle_patches == 0:
-  n_patches = 2500
+  n_patches = 1000
   (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
   
   joblib.dump(T1,home+'/Exp/T1.pkl', compress=True)
@@ -156,10 +156,10 @@ model_identity.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model_warped = build_one_model(init_shape, feature_model = feature_model, mapping_model = mapping_reversible_T2_to_T1, reconstruction_model = None)
 model_warped.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
-model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, model_reversible_T1_to_T2, recon_model)
+model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
 model_all.compile(optimizer=Adam(lr=learning_rate), 
-                  loss=loss,
-                  loss_weights=[1,1,1,1]) 
+                  loss=loss)#,
+                  #loss_weights=[1,1,1,1]) 
 
 #models = []
 #models.append(model_identity)
@@ -208,12 +208,15 @@ for e in range(epochs):
     
   for i in range(num_batches):
     #subT1, subT2, subPD = subsample(batch_size)
+    #Il faudrait randomiser cette étape
     subT1 = T1[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
     subT2 = T2[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
     subPD = PD[index[i*batch_size:(i+1)*batch_size],:,:,:,:]    
     
     #All
-    epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=[subT1,subT2,subT2,subT1]))
+    #epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=[subT1,subT2,subT2,subT1,subT2,subT1]))
+    epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0])))
+    
     #Reversible
     #epoch_end_to_end_loss.append(model_reversible_T2_to_T1.train_on_batch(x=subT2, y=subT1))
     #epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
