@@ -13,6 +13,10 @@ import joblib
 from sklearn.utils import check_random_state
 from keras.utils.generic_utils import Progbar
 
+import matplotlib.pyplot as plt
+#%matplotlib auto
+
+
 #Package from OpenAI for GPU memory saving
 #https://github.com/cybertronai/gradient-checkpointing
 import memory_saving_gradients
@@ -22,12 +26,12 @@ from os.path import expanduser
 home = expanduser("~")
 output_path = home+'/Sync/Experiments/IXI/'
 
-patch_size = 50
+patch_size = 40
 
 load_pickle_patches = 1
 
 if load_pickle_patches == 0:
-  n_patches = 1000
+  n_patches = 2500
   (T1,T2,PD) = get_ixi_3dpatches(patch_size = patch_size, n_patches = n_patches)
   
   joblib.dump(T1,home+'/Exp/T1.pkl', compress=True)
@@ -54,9 +58,9 @@ print(T1.shape)
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 16
-n_layers = 1
+n_layers = 2
 n_layers_residual = 5
-learning_rate = 0.001
+learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 32 
 epochs = 50
@@ -158,8 +162,8 @@ model_warped.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
 model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
 model_all.compile(optimizer=Adam(lr=learning_rate), 
-                  loss=loss)#,
-                  #loss_weights=[1,1,1,1]) 
+                  loss=loss,
+                  loss_weights=[1,1,1,1]) 
 
 #models = []
 #models.append(model_identity)
@@ -169,7 +173,7 @@ model_all.compile(optimizer=Adam(lr=learning_rate),
 #for m in models:
 #  m.compile(optimizer=Adam(lr=learning_rate), loss=loss)   
 
-
+ 
 def subsample(sampling=0.1):
   random_state = None
   rng = check_random_state(random_state)
@@ -192,65 +196,108 @@ rng = check_random_state(random_state)
 #Start with mapping first? (most difficult)
 #model_T2_to_T1.fit(x=T2, y=T1, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
+
+#n_cols = 20
+#n_rows = 20
+#index = rng.randint(T1.shape[0], size=n_cols*n_rows)
+#plt.figure(figsize=(2. * n_cols, 2. * n_rows))
+#for i in range(len(index)):
+#  sub = plt.subplot(n_rows, n_cols, i+1)
+#  sub.imshow(T2[index[i],:,:,(int)(patch_size/2),0],
+#               cmap=plt.cm.gray,
+#               interpolation="nearest")
+#plt.show()
+
 for e in range(epochs):
    
   #Training on small batch size
   num_batches = int(np.ceil(T1.shape[0] / float(batch_size)))
   progress_bar = Progbar(target=num_batches)
 
-  index = rng.randint(T1.shape[0], size=T1.shape[0])#tirage avec remise
+  #index = rng.randint(T1.shape[0], size=T1.shape[0])#tirage avec remise
+  index = np.random.permutation(T1.shape[0])
 
   epoch_end_to_end_loss = []
   epoch_end_to_end_rev_loss = []
   epoch_mapping_loss = []
   epoch_idT2_loss = []
   epoch_idT1_loss = []
-    
-  for i in range(num_batches):
-    #subT1, subT2, subPD = subsample(batch_size)
-    #Il faudrait randomiser cette étape
-    subT1 = T1[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
-    subT2 = T2[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
-    subPD = PD[index[i*batch_size:(i+1)*batch_size],:,:,:,:]    
-    
-    #All
-    #epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=[subT1,subT2,subT2,subT1,subT2,subT1]))
-    epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0])))
-    
-    #Reversible
-    #epoch_end_to_end_loss.append(model_reversible_T2_to_T1.train_on_batch(x=subT2, y=subT1))
-    #epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
+  
+#  model_all.fit(x=[T2,T1], y=np.zeros(T2.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
-    #if i%5 ==0:
-    #model_reversible_T2_to_T1.train_on_batch(x=subT1, y=subT1)
-    #  model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
-    
-    
-    #epoch_end_to_end_loss.append(model_T2_to_T1.train_on_batch(x=subT2, y=subT1))
-    #model_PD_to_T2.train_on_batch(x=subT2, y=subT1)
-    #model_T1_to_PD.train_on_batch(x=subT2, y=subT1)
+  lw1 = 1.0
+  lw2 = 0.0
+  lw3 = 0.0
+  lw4 = 0.0
 
-    #model_T2_to_T1.train_on_batch(x=subT1, y=subT1)
+  if e > 15 :
+    lw2 += 0.10
+    if lw2 > 1:
+      lw2 = 1.0
+
+  if e > 25:
+    lw3 += 0.10
+    lw4 += 0.10
+    if lw3 > 1:
+      lw3 = 1.0
+      lw4 = 1.0
+
+  model_all.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=[lw1,lw2,lw3,lw4])
+  # if e == 0:
+  #   model_all.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=[1,0,0,0]) 
+  # if e == 5:
+  #   model_all.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=[1,0.5,0,0])
+  # if e == 10:
+  #   model_all.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=[1,1,0.1,0.1])
+  # if e == 15:
+  #   model_all.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=[1,1,0.5,0.5])    
+  model_all.fit(x=[T2,T1], y=[T1,T2,T2,T1], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+
+#  for i in range(num_batches):
+#    #subT1, subT2, subPD = subsample(batch_size)
+#    #Il faudrait randomiser cette étape
+#    subT1 = T1[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
+#    subT2 = T2[index[i*batch_size:(i+1)*batch_size],:,:,:,:]
+#    subPD = PD[index[i*batch_size:(i+1)*batch_size],:,:,:,:]    
+#    
+#    #All
+#    #epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=[subT1,subT2,subT2,subT1,subT2,subT1]))
+#    epoch_end_to_end_loss.append(model_all.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0])))
+#    
+#    #Reversible
+#    #epoch_end_to_end_loss.append(model_reversible_T2_to_T1.train_on_batch(x=subT2, y=subT1))
+#    #epoch_end_to_end_rev_loss.append(model_reversible_T1_to_T2.train_on_batch(x=subT1, y=subT2))
+#
+#    #if i%5 ==0:
+#    #model_reversible_T2_to_T1.train_on_batch(x=subT1, y=subT1)
+#    #  model_reversible_T1_to_T2.train_on_batch(x=subT2, y=subT2)
+#    
+#    
+#    #epoch_end_to_end_loss.append(model_T2_to_T1.train_on_batch(x=subT2, y=subT1))
+#    #model_PD_to_T2.train_on_batch(x=subT2, y=subT1)
+#    #model_T1_to_PD.train_on_batch(x=subT2, y=subT1)
+#
+#    #model_T2_to_T1.train_on_batch(x=subT1, y=subT1)
+#    
+#    #epoch_mapping_loss.append(model_exp.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0]))) 
+#    
+#    #if i%5 ==0: 
+#    #  epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
+#    #  epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
+#    #  model_identity.train_on_batch(x=subPD, y=subPD)      
+#    
+#    progress_bar.update(i + 1)
     
-    #epoch_mapping_loss.append(model_exp.train_on_batch(x=[subT2,subT1], y=np.zeros(subT2.shape[0]))) 
-    
-    #if i%5 ==0: 
-    #  epoch_idT2_loss.append(model_identity.train_on_batch(x=subT2, y=subT2))   
-    #  epoch_idT1_loss.append(model_identity.train_on_batch(x=subT1, y=subT1))
-    #  model_identity.train_on_batch(x=subPD, y=subPD)      
-    
-    progress_bar.update(i + 1)
-    
-  end_to_end_loss = np.mean(np.array(epoch_end_to_end_loss), axis=0)
-  end_to_end_rev_loss = np.mean(np.array(epoch_end_to_end_rev_loss), axis=0)
-  mapping_loss = np.mean(np.array(epoch_mapping_loss), axis=0)
-  idT2_loss = np.mean(np.array(epoch_idT2_loss), axis=0)
-  idT1_loss = np.mean(np.array(epoch_idT1_loss), axis=0)
-  print('End-to-end Loss :'+str(end_to_end_loss))
-  print('End-to-end Rev Loss :'+str(end_to_end_rev_loss))
-  print('Mapping Loss :'+str(mapping_loss))
-  print('IdT2 Loss : '+str(idT2_loss))
-  print('IdT1 Loss : '+str(idT1_loss))
+  # end_to_end_loss = np.mean(np.array(epoch_end_to_end_loss), axis=0)
+  # end_to_end_rev_loss = np.mean(np.array(epoch_end_to_end_rev_loss), axis=0)
+  # mapping_loss = np.mean(np.array(epoch_mapping_loss), axis=0)
+  # idT2_loss = np.mean(np.array(epoch_idT2_loss), axis=0)
+  # idT1_loss = np.mean(np.array(epoch_idT1_loss), axis=0)
+  # print('End-to-end Loss :'+str(end_to_end_loss))
+  # print('End-to-end Rev Loss :'+str(end_to_end_rev_loss))
+  # print('Mapping Loss :'+str(mapping_loss))
+  # print('IdT2 Loss : '+str(idT2_loss))
+  # print('IdT1 Loss : '+str(idT1_loss))
   
   print('saving results')#-----------------------------------------------------
   image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
@@ -273,14 +320,69 @@ for e in range(epochs):
 
   image_T2_f = apply_model_on_3dimage(feature_model, T2image, mask=maskarray)
   nibabel.save(image_T2_f,output_path+prefix+'_current'+str(e)+'feature_T2.nii.gz') 
+   
 
+  feature_model.save(output_path+prefix+'feature_model.h5')
+  recon_model.save(output_path+prefix+'recon_model.h5')
+  block_f_T2_to_T1.save(output_path+prefix+'block_f_T2_to_T1.h5')
+  block_g_T2_to_T1.save(output_path+prefix+'block_g_T2_to_T1.h5')
+
+  n = 10
+  [a,b,c,d] = model_all.predict(x=[T2[0:n,:,:,:,:],T1[0:n,:,:,:,:]], batch_size = batch_size)
+  
+  
+  n_cols = 6
+  n_rows = n
+  #index = np.random.permutation(T1.shape[0])
+  #
+  plt.figure(figsize=(2. * n_cols, 2. * n_rows))
+  for i in range(n):
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+1)
+    sub.imshow(T2[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+2)
+    sub.imshow(T1[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+3)  
+    sub.imshow(a[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+4)  
+    sub.imshow(b[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+5)  
+    sub.imshow(c[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    sub = plt.subplot(n_rows, n_cols, i*n_cols+6)  
+    sub.imshow(d[i,:,:,(int)(patch_size/2),0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest")
+    
+  #plt.show()
+  plt.axis('off')
+  plt.savefig(output_path+prefix+'_current'+str(e)+'fig_patches.png',dpi=150, bbox_inches='tight')
+
+#
+#plt.figure(figsize=(2. * n_cols, 2. * n_rows))
+#for i in range(n_cols * n_rows):
+#  sub = plt.subplot(n_rows, n_cols, i+1)
+#  sub.imshow(T1[index[i],:,:,(int)(patch_size/2),0],
+#               cmap=plt.cm.gray,
+#               interpolation="nearest")
+#  
+#plt.show()
 
 prefix = 'experimental_'
-   
+  
 
 feature_model.save(output_path+prefix+'feature_model.h5')
 recon_model.save(output_path+prefix+'recon_model.h5')
-block_T2_to_T1.save(output_path+prefix+'block_t2_to_t1.h5')
+block_f_T2_to_T1.save(output_path+prefix+'block_f_T2_to_T1.h5')
+block_g_T2_to_T1.save(output_path+prefix+'block_g_T2_to_T1.h5')
 
 #Encoding
 image_T1_id = apply_model_on_3dimage(model_identity, T1image, mask=maskarray)
