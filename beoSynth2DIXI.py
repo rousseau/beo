@@ -18,6 +18,8 @@ from keras.utils import multi_gpu_model
 import matplotlib.pyplot as plt
 import nibabel
 from dataset import get_ixi_2dpatches
+import subprocess
+
 #%%
 
 
@@ -27,7 +29,7 @@ home = expanduser("~")
 output_path = home+'/Sync/Experiments/IXI/'
 
 patch_size = 80
-load_pickle_patches = 0
+load_pickle_patches = 1
 
 if load_pickle_patches == 0:
   n_patches = 50 #per slice
@@ -62,15 +64,17 @@ else:
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 2
+n_layers = 1
 n_layers_residual = 5
 learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 128 
-epochs = 50
+epochs = 15
 use_optim = 0
 kernel_size = 5
-n_gpu = 4
+shared_blocks = 0
+#Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
+n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
 
 lw1 = 1 #loss weight direct mapping
 lw2 = 1 #loss weight inverse mapping
@@ -89,6 +93,8 @@ if cycle_consistency == 1:
   prefix += '_cycle'
 if identity_consistency == 1:
   prefix += '_idc'  
+if shared_blocks == 1:
+  prefix += '_shared'  
 prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(T1_2D.shape[0])
 prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
@@ -111,9 +117,22 @@ else:
 feature_model = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
 recon_model = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
 
-block_f_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-block_g_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+#block_f_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+#block_g_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
 
+block_f_T2_to_T1 = []
+block_g_T2_to_T1 = []
+if shared_blocks == 0:
+  for l in range(n_layers):
+    block_f_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+    block_g_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+else:
+  bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+  bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+  for l in range(n_layers):
+    block_f_T2_to_T1.append(bf)
+    block_g_T2_to_T1.append(bg)
+  
 mapping_reversible_T2_to_T1 = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
 mapping_reversible_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
 

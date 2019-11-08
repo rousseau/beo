@@ -423,10 +423,10 @@ def build_reversible_forward_model_2d(init_shape, block_f, block_g, n_layers, sc
 
   for i in range(n_layers):    
     
-    xx = block_f(x2)
+    xx = block_f[i](x2)
     y1= Add()([x1,xx])
     
-    xx = block_g(y1)
+    xx = block_g[i](y1)
     y2= Add()([x2,xx])
 
     x1 = y1
@@ -501,10 +501,10 @@ def build_reversible_backward_model_2d(init_shape, block_f, block_g, n_layers, s
 
   for i in range(n_layers):    
     
-    yy = block_g(y1)
+    yy = block_g[n_layers-1-i](y1)
     x2= Subtract()([y2,yy])
     
-    yy = block_f(x2)
+    yy = block_f[n_layers-1-i](x2)
     x1= Subtract()([y1,yy])
 
     y1 = x1
