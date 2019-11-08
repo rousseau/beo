@@ -30,6 +30,10 @@ def get_ixi_3dpatches(patch_size = 40, n_patches = 1000):
   T1_patches = None
   T2_patches = None
   PD_patches = None
+
+  T1 = []
+  T2 = []
+  PD = []
   
   mask_extract = 0.5
 #  ratio = 4 #we extract more patches than necessary due to mask checking (which leads to unknown number of patches)
@@ -91,23 +95,32 @@ def get_ixi_3dpatches(patch_size = 40, n_patches = 1000):
 #  T2_patches = T2_patches[ index ]
 #  PD_patches = PD_patches[ index ]
     
-    if T1_patches is None:
-      T1_patches = np.copy(pmT1)
-      T2_patches = np.copy(pmT2)
-      PD_patches = np.copy(pmPD)    
-    else:
-      T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
-      T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
-      PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
+    T1.append(pmT1)
+    T2.append(pmT2)
+    PD.append(pmPD)
+      
+      
+#    if T1_patches is None:
+#      T1_patches = np.copy(pmT1)
+#      T2_patches = np.copy(pmT2)
+#      PD_patches = np.copy(pmPD)    
+#    else:
+#      T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
+#      T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
+#      PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
+
+  T1_patches = np.concatenate(T1,axis=0)
+  T2_patches = np.concatenate(T2,axis=0)    
+  PD_patches = np.concatenate(PD,axis=0)    
           
-  plt.figure()
-  plt.subplot(1,3,1)
-  plt.imshow(T1_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-  plt.subplot(1,3,2)
-  plt.imshow(T2_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-  plt.subplot(1,3,3)
-  plt.imshow(PD_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
-  plt.show(block=False)
+#  plt.figure()
+#  plt.subplot(1,3,1)
+#  plt.imshow(T1_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
+#  plt.subplot(1,3,2)
+#  plt.imshow(T2_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
+#  plt.subplot(1,3,3)
+#  plt.imshow(PD_patches[10,:,:,20],cmap='gray',vmin=-3,vmax=3)
+#  plt.show(block=False)
   
 #  for n in range(T1_patches.shape[0]):
 #    T1_patches[n,:,:,:] = nd_windowing(T1_patches[n,:,:,:],signal.hamming)
@@ -134,7 +147,11 @@ def get_ixi_2dpatches(patch_size = 40, n_patches = 1000):
   T2_patches = None
   PD_patches = None
   
-  mask_extract = 0.5
+  T1 = []
+  T2 = []
+  PD = []
+  
+  mask_extract = 0.75
   patch_shape = (patch_size,patch_size,1)
   random_state = None
 
@@ -165,30 +182,39 @@ def get_ixi_2dpatches(patch_size = 40, n_patches = 1000):
       pT2 = pT2.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
       pPD = pPD.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
       pmask = pmask.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
-      
+      pmask = pmask.reshape(pmask.shape[0],-1)
+
       #Remove empty patches (<50% of brain mask)  
       pmT1 = pT1[ np.mean(pmask,axis=1)>=mask_extract ]
       pmT2 = pT2[ np.mean(pmask,axis=1)>=mask_extract ]
       pmPD = pPD[ np.mean(pmask,axis=1)>=mask_extract ]  
       
-      if T1_patches is None:
-        T1_patches = np.copy(pmT1)
-        T2_patches = np.copy(pmT2)
-        PD_patches = np.copy(pmPD)    
-      else:
-        T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
-        T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
-        PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
+      T1.append(pmT1)
+      T2.append(pmT2)
+      PD.append(pmPD)
+      
+#      if T1_patches is None:
+#        T1_patches = np.copy(pmT1)
+#        T2_patches = np.copy(pmT2)
+#        PD_patches = np.copy(pmPD)    
+#      else:
+#        T1_patches = np.concatenate((T1_patches,pmT1),axis=0)
+#        T2_patches = np.concatenate((T2_patches,pmT2),axis=0)    
+#        PD_patches = np.concatenate((PD_patches,pmPD),axis=0)    
+
+  T1_patches = np.concatenate(T1,axis=0)
+  T2_patches = np.concatenate(T2,axis=0)    
+  PD_patches = np.concatenate(PD,axis=0)    
                 
   print(T1_patches.shape)      
-  plt.figure()
-  plt.subplot(1,3,1)
-  plt.imshow(T1_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
-  plt.subplot(1,3,2)
-  plt.imshow(T2_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
-  plt.subplot(1,3,3)
-  plt.imshow(PD_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
-  plt.show(block=False)
+#  plt.figure()
+#  plt.subplot(1,3,1)
+#  plt.imshow(T1_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
+#  plt.subplot(1,3,2)
+#  plt.imshow(T2_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
+#  plt.subplot(1,3,3)
+#  plt.imshow(PD_patches[10,:,:,0],cmap='gray',vmin=-3,vmax=3)
+#  plt.show(block=False)
   
 #  for n in range(T1_patches.shape[0]):
 #    T1_patches[n,:,:,:] = nd_windowing(T1_patches[n,:,:,:],signal.hamming)
