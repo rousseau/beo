@@ -1,6 +1,7 @@
 import keras.backend as K
 from keras.models import Model
 from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda
+from keras.layers import Conv2D, UpSampling2D
 from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
 from keras.layers import concatenate, Flatten
 from keras.regularizers import l1, l2
@@ -164,6 +165,30 @@ def build_feature_model(init_shape, n_filters=32, kernel_size=3):
   model = Model(inputs=inputs, outputs=features)
   return model
 
+def build_feature_model_2d(init_shape, n_filters=32, kernel_size=3):
+  if K.image_data_format() == 'channels_first':
+    channel_axis = 1
+  else:
+    channel_axis = -1
+      
+  inputs = Input(shape=init_shape)
+  
+  features = inputs
+      
+  features = Conv2D((int)(n_filters/2), (kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1)(features)
+  features = BatchNormalization(axis=channel_axis)(features)
+  features = Activation('relu')(features) 
+  
+  features = Conv2D(filters=n_filters, kernel_size=(3,3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=2)(features)
+  features = BatchNormalization(axis=channel_axis)(features)
+  features = Activation('tanh')(features)
+  
+  model = Model(inputs=inputs, outputs=features)
+  return model
 
 #def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
 #  input_recon = Input(shape=init_shape)
@@ -201,6 +226,30 @@ def build_recon_model(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
   
   model = Model(inputs=input_recon, outputs=recon)
   return model
+
+def build_recon_model_2d(init_shape, n_channelsY=1, n_filters=32, kernel_size=3):
+  if K.image_data_format() == 'channels_first':
+    channel_axis = 1
+  else:
+    channel_axis = -1
+  
+  input_recon = Input(shape=init_shape)
+
+  recon=(UpSampling2D((2, 2)))(input_recon)  
+  recon = Conv2D(filters=n_filters, kernel_size=(3, 3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1)(recon)
+  recon = BatchNormalization(axis=channel_axis)(recon)
+  recon = Activation('relu')(recon)
+  
+  recon = Conv2D(filters=n_channelsY, kernel_size=(kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1)(recon)
+#  recon=(Activation('linear'))(recon)
+  
+  model = Model(inputs=input_recon, outputs=recon)
+  return model
+
 
 def build_block_model(init_shape, n_filters=32, n_layers=2):
   if K.image_data_format() == 'channels_first':
@@ -257,6 +306,62 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   model = Model(inputs=input_block, outputs=output_block)
   return model
 
+
+def build_block_model_2d(init_shape, n_filters=32, n_layers=2):
+  if K.image_data_format() == 'channels_first':
+    channel_axis = 1
+  else:
+    channel_axis = -1
+  
+  input_block = Input(shape=init_shape)
+  x = input_block
+  
+  block_type = 'res_in_res'
+  ratio = 1 #change inside the block the number of filters
+
+  if block_type == 'resnet':    
+    for i in range(n_layers-1):
+      x = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer='glorot_uniform',
+                      use_bias=False,
+                      strides=1)(x)
+      x = Activation('relu')(x)
+  
+    x = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1)(x)
+    #x = Activation('tanh')(x)  
+  
+
+  if block_type == 'dense':
+    for i in range(n_layers):
+      #conv
+      y = Conv2D((int)(n_filters*ratio), (3, 3), activation='relu', padding='same', kernel_initializer='glorot_uniform', use_bias=False)(x)
+      x = concatenate([x,y], axis=channel_axis)
+
+      #bottleneck to keep the same feature dimension
+      x = Conv2D(n_filters, (1, 1), activation='relu', padding='same', kernel_initializer='glorot_uniform', use_bias=False)(x)
+    
+
+  if block_type =='res_in_res':
+    for i in range(n_layers):
+      y = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer='glorot_uniform',
+                      use_bias=False,
+                      strides=1)(x)#,
+                      #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(x)
+      y = Activation('relu')(y)
+  
+      y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1)(y)#,
+                    #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
+      #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
+      x = Add()([y,x])  
+      
+      
+  output_block = x  
+  model = Model(inputs=input_block, outputs=output_block)
+  return model
+
 def build_reversible_forward_model(init_shape, block_f, block_g, n_layers, scaling=None):
   input_block = Input(shape=init_shape)
 
@@ -274,6 +379,45 @@ def build_reversible_forward_model(init_shape, block_f, block_g, n_layers, scali
   else:
     x1 = Lambda(lambda x: x[:,:(int)(K.int_shape(x)[-1]/2),:,:,:])(x)
     x2 = Lambda(lambda x: x[:,(int)(K.int_shape(x)[-1]/2):,:,:,:])(x)
+    channel_axis = 1
+
+
+  for i in range(n_layers):    
+    
+    xx = block_f(x2)
+    y1= Add()([x1,xx])
+    
+    xx = block_g(y1)
+    y2= Add()([x2,xx])
+
+    x1 = y1
+    x2 = y2    
+
+  x = concatenate([x1,x2], axis=channel_axis)    
+    
+  #x = Activation('tanh')(x)#Limit the max/min fo the added residual
+  output_block = x
+  
+  model = Model(inputs=input_block, outputs=output_block)
+  return model
+
+def build_reversible_forward_model_2d(init_shape, block_f, block_g, n_layers, scaling=None):
+  input_block = Input(shape=init_shape)
+
+  if scaling is None:
+    scaling = 1.0/n_layers
+    print('Scaling in forward model : '+str(scaling))
+    
+  x = input_block
+
+  #Split channels
+  if K.image_data_format() == 'channels_last':
+    x1 = Lambda(lambda x: x[:,:,:,:(int)(K.int_shape(x)[-1]/2)])(x)
+    x2 = Lambda(lambda x: x[:,:,:,(int)(K.int_shape(x)[-1]/2):])(x)
+    channel_axis = -1
+  else:
+    x1 = Lambda(lambda x: x[:,:(int)(K.int_shape(x)[-1]/2),:,:])(x)
+    x2 = Lambda(lambda x: x[:,(int)(K.int_shape(x)[-1]/2):,:,:])(x)
     channel_axis = 1
 
 
@@ -334,6 +478,46 @@ def build_reversible_backward_model(init_shape, block_f, block_g, n_layers, scal
   
   model = Model(inputs=input_block, outputs=output_block)
   return model
+
+def build_reversible_backward_model_2d(init_shape, block_f, block_g, n_layers, scaling=None):
+  input_block = Input(shape=init_shape)
+
+  if scaling is None:
+    scaling = 1.0/n_layers
+    print('Scaling in backward model : '+str(scaling))
+    
+  y = input_block
+
+  #Split channels
+  if K.image_data_format() == 'channels_last':
+    y1 = Lambda(lambda x: x[:,:,:,:(int)(K.int_shape(x)[-1]/2)])(y)
+    y2 = Lambda(lambda x: x[:,:,:,(int)(K.int_shape(x)[-1]/2):])(y)
+    channel_axis = -1
+  else:
+    y1 = Lambda(lambda x: x[:,:(int)(K.int_shape(x)[-1]/2),:,:])(y)
+    y2 = Lambda(lambda x: x[:,(int)(K.int_shape(x)[-1]/2):,:,:])(y)
+    channel_axis = 1
+
+
+  for i in range(n_layers):    
+    
+    yy = block_g(y1)
+    x2= Subtract()([y2,yy])
+    
+    yy = block_f(x2)
+    x1= Subtract()([y1,yy])
+
+    y1 = x1
+    y2 = x2    
+
+  y = concatenate([y1,y2], axis=channel_axis)    
+    
+  #x = Activation('tanh')(x)#Limit the max/min fo the added residual
+  output_block = y
+  
+  model = Model(inputs=input_block, outputs=output_block)
+  return model
+
 
 def build_forward_model(init_shape, block_model, n_layers, scaling=None):
   input_block = Input(shape=init_shape)
@@ -555,5 +739,7 @@ def TriangleModel(init_shape, feature_shape, feature_model, block_PD_to_T2, bloc
 #  model = Model(inputs=inputT1, outputs=errsum)
   
   return model  
+
+
 
   
