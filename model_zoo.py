@@ -717,22 +717,22 @@ def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, rec
   #Identity mapping constraints
   my2y = mapping_x_to_y(fy)
   ry2y = reconstruction_model(my2y)
+
   mx2x = mapping_y_to_x(fx)
   rx2x = reconstruction_model(mx2x) 
 
   #Cycle consistency
-  # frx2y = feature_model(rx2y)
-  # mrx2y = mapping_y_to_x(frx2y)
-  # rrx2y = reconstruction_model(mrx2y)
+  frx2y = feature_model(rx2y)
+  mx2y2x = mapping_y_to_x(frx2y)
+  rx2y2x = reconstruction_model(mx2y2x)  
 
-  # fry2x = feature_model(ry2x)
-  # mry2x = mapping_x_to_y(fry2x)
-  # rry2x = reconstruction_model(mry2x)
-
+  fry2x = feature_model(ry2x)
+  my2x2y = mapping_x_to_y(fry2x)
+  ry2x2y = reconstruction_model(my2x2y)  
 
   #Autoencoder constraints
-  # idy2y = reconstruction_model(fy)
-  # idx2x = reconstruction_model(fx)  
+  idy2y = reconstruction_model(fy)
+  idx2x = reconstruction_model(fx)  
 
   #Errors  
   # errx2y = Subtract()([rx2y,iy])
@@ -782,7 +782,7 @@ def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, rec
 #  errsum = Add()([errx2y, erry2x, errx2x, erry2y])
 
 #  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,idx2x,idy2y])
-  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y])
+  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y])
 #  model = Model(inputs=[ix,iy], outputs=errsum)
   return model
 

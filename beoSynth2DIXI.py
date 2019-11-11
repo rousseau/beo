@@ -138,18 +138,14 @@ mapping_reversible_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feat
 
 model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
 
-model_direct = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 0)
-model_inverse = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 1)
-
-model_direct_inverse = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 2)
-model_direct_identity= build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 7)
+model_mode = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 6)
 
 #Select the model to optimze wrt.
 if n_gpu > 1:
-  model = multi_gpu_model(model_direct_identity, gpus=n_gpu)
+  model = multi_gpu_model(model_mode, gpus=n_gpu)
   batch_size = batch_size * n_gpu
 else:
-  model = model_direct_identity
+  model = model_mode
   
 model_all.compile(optimizer=Adam(lr=learning_rate), 
                  loss=loss,
@@ -172,7 +168,7 @@ for e in range(epochs):
    
   model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 #  model.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  model.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  model.fit(x=[T2_2D], y=[T1_2D,T2_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
   #model.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
   
@@ -180,12 +176,16 @@ for e in range(epochs):
   step = 100
   t2 = T2_2D[0:n*step:step,:,:,:]
   t1 = T1_2D[0:n*step:step,:,:,:]
-  [a,b,c,d] = model_all.predict(x=[t2,t1], batch_size = batch_size)
+  [a,b,c,d,e,f,g,h] = model_all.predict(x=[t2,t1], batch_size = batch_size)
 
   print('mse synthesis t1 : '+str(np.mean((t1 - a)**2)))
   print('mse synthesis t2 : '+str(np.mean((t2 - b)**2)))
-  print('mse identity t2 : '+str(np.mean((t2 - c)**2)))
-  print('mse identity t1 : '+str(np.mean((t1 - d)**2)))
+  print('mse identity mapping t2 : '+str(np.mean((t2 - c)**2)))
+  print('mse identity mapping t1 : '+str(np.mean((t1 - d)**2)))
+  print('mse cycle t2 : '+str(np.mean((t2 - e)**2)))
+  print('mse cycle t1 : '+str(np.mean((t1 - f)**2)))
+  print('mse identity t2 : '+str(np.mean((t2 - g)**2)))
+  print('mse identity t1 : '+str(np.mean((t1 - h)**2)))
 
 
   n_cols = 6
