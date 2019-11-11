@@ -11,7 +11,7 @@ import joblib
 import numpy as np
 import keras.backend as K
 from model_zoo import build_feature_model_2d, build_recon_model_2d, build_block_model_2d
-from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition
+from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition, build_model
 from model_zoo import build_exp_model, fm_model, build_reversible_forward_model_2d, build_reversible_backward_model_2d, build_4_model
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
@@ -64,20 +64,20 @@ else:
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 1
-n_layers_residual = 5
+n_layers = 2 
+n_layers_residual = 2
 learning_rate = 0.0001
 loss = 'mae' 
 batch_size = 128 
-epochs = 15
+epochs = 25
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
 #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
 n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
-
+ 
 lw1 = 1 #loss weight direct mapping
-lw2 = 1 #loss weight inverse mapping
+lw2 = 0 #loss weight inverse mapping
 lw3 = 0 #loss weight identity mapping
 
 inverse_consistency = 0
@@ -138,16 +138,23 @@ mapping_reversible_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feat
 
 model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
 
+model_direct = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 0)
+model_inverse = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 1)
+
+model_direct_inverse = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 2)
+model_direct_identity= build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 7)
+
+#Select the model to optimze wrt.
 if n_gpu > 1:
-  model = multi_gpu_model(model_all, gpus=n_gpu)
+  model = multi_gpu_model(model_direct_identity, gpus=n_gpu)
   batch_size = batch_size * n_gpu
 else:
-  model = model_all
+  model = model_direct_identity
   
-
-model.compile(optimizer=Adam(lr=learning_rate), 
-                loss=loss,
-                loss_weights=[lw1,lw2,lw3,lw3])
+model_all.compile(optimizer=Adam(lr=learning_rate), 
+                 loss=loss,
+                 loss_weights=[lw1,lw2,lw3,lw3])
+model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 model.summary()
 
 #%%
@@ -155,54 +162,76 @@ for e in range(epochs):
   lr = learning_rate
   if e > 5:  
     lr *= 0.1
-  elif e > 10:
+  if e > 10:
     lr *= 0.1
-  
+  if e > 25:
+    lr *= 0.1
+
+ 
   print('current learning rate : '+str(lr))
-  
-  model.compile(optimizer=Adam(lr=lr), 
-                  loss=loss,
-                  loss_weights=[lw1,lw2,lw3,lw3])
-  
-  
+   
+  model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+#  model.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
   model.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+
+  #model.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
   
   n = 10
   step = 100
-  [a,b,c,d] = model.predict(x=[T2_2D[0:n*step:step,:,:,:],T1_2D[0:n*step:step,:,:,:]], batch_size = batch_size)
   t2 = T2_2D[0:n*step:step,:,:,:]
   t1 = T1_2D[0:n*step:step,:,:,:]
-  
+  [a,b,c,d] = model_all.predict(x=[t2,t1], batch_size = batch_size)
+
+  print('mse synthesis t1 : '+str(np.mean((t1 - a)**2)))
+  print('mse synthesis t2 : '+str(np.mean((t2 - b)**2)))
+  print('mse identity t2 : '+str(np.mean((t2 - c)**2)))
+  print('mse identity t1 : '+str(np.mean((t1 - d)**2)))
+
+
   n_cols = 6
   n_rows = n
   #index = np.random.permutation(T1.shape[0])
   #
+  vmin = -2
+  vmax = 2
   plt.figure(figsize=(2. * n_cols, 2. * n_rows))
   for i in range(n):
     sub = plt.subplot(n_rows, n_cols, i*n_cols+1)
     sub.imshow(t2[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+    sub.axis('off')             
     sub = plt.subplot(n_rows, n_cols, i*n_cols+2)
     sub.imshow(t1[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+    sub.axis('off')             
     sub = plt.subplot(n_rows, n_cols, i*n_cols+3)  
     sub.imshow(a[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+    sub.axis('off')             
     sub = plt.subplot(n_rows, n_cols, i*n_cols+4)  
     sub.imshow(b[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+    sub.axis('off')             
     sub = plt.subplot(n_rows, n_cols, i*n_cols+5)  
     sub.imshow(c[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
     sub = plt.subplot(n_rows, n_cols, i*n_cols+6)  
+    sub.axis('off')             
     sub.imshow(d[i,:,:,0],
                  cmap=plt.cm.gray,
-                 interpolation="nearest")
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+    sub.axis('off')             
     
   #plt.show()
   plt.axis('off')
@@ -223,7 +252,7 @@ tmpmodel.compile(optimizer=Adam(lr=learning_rate),
                   loss=loss)
 
 [a,b] = tmpmodel.predict(x=T2_2D[0:n*step:step,:,:,:], batch_size = batch_size)
-print(np.linalg.norm(a-b))  
+print('Error on reversible mapping : '+str(np.linalg.norm(a-b)))  
 #%%  
 
 #Apply on a test image
