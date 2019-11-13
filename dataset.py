@@ -8,6 +8,15 @@ import matplotlib.pyplot as plt
 
 from os.path import expanduser
 
+def get_hcp_4darrays():
+  home = expanduser("~")
+  ixi_path = home+'/Data/Cerveau/Adulte/HCP100_T1T2/'
+  T1s = nbimages_to_4darrays(load_images(ixi_path, key='*T1.nii.gz', loader='nb',verbose=1))
+  T2s = nbimages_to_4darrays(load_images(ixi_path, key='*T2.nii.gz', loader='nb',verbose=1))
+  masks = nbimages_to_4darrays(load_images(ixi_path, key='*mask.nii.gz', loader='nb',verbose=1))
+  return (T1s,T2s,masks)
+
+
 def get_ixi_4darrays():
   home = expanduser("~")
   ixi_path = home+'/Exp/IXI-HH-training/'
@@ -151,7 +160,7 @@ def get_ixi_2dpatches(patch_size = 40, n_patches = 1000):
   T2 = []
   PD = []
   
-  mask_extract = 0.75
+  mask_extract = 0.90
   patch_shape = (patch_size,patch_size,1)
   random_state = None
 
@@ -232,3 +241,56 @@ def get_ixi_2dpatches(patch_size = 40, n_patches = 1000):
   
   return (T1_patches,T2_patches,PD_patches)
 
+def get_hcp_2dpatches(patch_size = 40, n_patches = 1000):
+  
+  (T1s,T2s,masks) = get_hcp_4darrays()  
+  n_images = len(T1s)
+  
+  T1_patches = None
+  T2_patches = None
+  
+  T1 = []
+  T2 = []
+  
+  mask_extract = 0.90
+  patch_shape = (patch_size,patch_size,1)
+  random_state = None
+
+  for i in tqdm(range(n_images)):
+    #Normalize data using mask
+    T1_norm = array_normalization(X=T1s[i],M=masks[i],norm=0)
+    T2_norm = array_normalization(X=T2s[i],M=masks[i],norm=0)
+    mask = masks[i]
+    
+    for j in range(T1_norm.shape[2]): #Loop over the slices
+      pT1 = extract_patches(T1_norm[:,:,j,:], patch_shape, extraction_step = 1)
+      pT2 = extract_patches(T2_norm[:,:,j,:], patch_shape, extraction_step = 1)
+      pmask = extract_patches(mask[:,:,j,:], patch_shape, extraction_step = 1)
+            
+      rng = check_random_state(random_state)
+      i_s = rng.randint(T1_norm.shape[0] - patch_shape[0] + 1, size = n_patches)
+      j_s = rng.randint(T1_norm.shape[1] - patch_shape[1] + 1, size = n_patches)
+      
+      pT1 = pT1[i_s, j_s,:]
+      pT2 = pT2[i_s, j_s,:]
+      pmask = pmask[i_s, j_s,:]
+      
+      #Channel last
+      pT1 = pT1.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
+      pT2 = pT2.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
+      pmask = pmask.reshape(-1, patch_shape[0], patch_shape[1],patch_shape[2])
+      pmask = pmask.reshape(pmask.shape[0],-1)
+
+      #Remove empty patches (<50% of brain mask)  
+      pmT1 = pT1[ np.mean(pmask,axis=1)>=mask_extract ]
+      pmT2 = pT2[ np.mean(pmask,axis=1)>=mask_extract ]
+      
+      T1.append(pmT1)
+      T2.append(pmT2)
+      
+  T1_patches = np.concatenate(T1,axis=0)
+  T2_patches = np.concatenate(T2,axis=0)    
+                
+  print(T1_patches.shape)      
+  
+  return (T1_patches,T2_patches)
