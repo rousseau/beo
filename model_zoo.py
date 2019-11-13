@@ -603,102 +603,74 @@ def build_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, recon
   #5 : direct and cycle consistency for x
   #6 : 5 + identity for x
   #7 : direct, inverse, cycle
+  #8 : autoencoder for x
+  #9 : autoencoder + direct mapping
   
+  ix = Input(shape=init_shape)
+  iy = Input(shape=init_shape)
+
+  fx = feature_model(ix) # features of x
+  fy = feature_model(iy) # features of y
+
+  mx2y = mapping_x_to_y(fx) # direct mapping
+  my2x = mapping_y_to_x(fy) # inverse mapping
+
+  rx2y = reconstruction_model(mx2y) # reconstruction of direct mapping
+  ry2x = reconstruction_model(my2x) # reconstruction of inverse mapping
+
+  #identity through mapping
+  mx2x = mapping_y_to_x(fx)
+  rx2x = reconstruction_model(mx2x)
+
+  my2y = mapping_x_to_y(fy)
+  ry2y = reconstruction_model(my2y)
+
+  #autoencoder
+  rx = reconstruction_model(fx)
+  ry = reconstruction_model(fy)
+
+  #cycle consistency
+  fx2y = feature_model(rx2y)
+  mx2y2x = mapping_y_to_x(fx2y)
+  rx2y2x = reconstruction_model(mx2y2x) 
+
+  fy2x = feature_model(ry2x)
+  my2x2y = mapping_x_to_y(fy2x)
+  ry2x2y = reconstruction_model(my2x2y)  
+
+  if mode == -1:  
+    return Model(inputs=ix, outputs=fx)
+
   if mode == 0:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
     return Model(inputs=ix, outputs=rx2y)
 
   if mode == 1:
-    iy = Input(shape=init_shape)	
-    fy = feature_model(iy)
-    my2x = mapping_y_to_x(fy)
-    ry2x = reconstruction_model(my2x)
     return Model(inputs=iy, outputs=ry2x)
 
   if mode == 2:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-  
-    iy = Input(shape=init_shape)	
-    fy = feature_model(iy)
-    my2x = mapping_y_to_x(fy)
-    ry2x = reconstruction_model(my2x)
     return Model(inputs=[ix,iy], outputs=[rx2y,ry2x])
 
   if mode == 3:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-
-    iy = Input(shape=init_shape)	
-    fy = feature_model(iy)
-    my2y = mapping_x_to_y(fy)
-    ry2y = reconstruction_model(my2y)
-
     return Model(inputs=[ix,iy], outputs=[rx2y,ry2y])
 
   if mode == 4:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-
-    rx2x = reconstruction_model(fx)
-
-    return Model(inputs=ix, outputs=[rx2y,rx2x])
+    return Model(inputs=ix, outputs=[rx2y,rx])
 
   if mode == 5:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-
-    fx2y = feature_model(rx2y)
-    mx2y2x = mapping_y_to_x(fx2y)
-    rx2y2x = reconstruction_model(mx2y2x)  
-
     return Model(inputs=ix, outputs=[rx2y,rx2y2x])
 
   if mode == 6:
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-
-    fx2y = feature_model(rx2y)
-    mx2y2x = mapping_y_to_x(fx2y)
-    rx2y2x = reconstruction_model(mx2y2x)  
-
-    rx2x = reconstruction_model(fx)
-
-    return Model(inputs=ix, outputs=[rx2y,rx2y2x,rx2x])
+    return Model(inputs=ix, outputs=[rx2y,rx2y2x,rx])
 
   if mode == 7:  
-    ix = Input(shape=init_shape)	
-    fx = feature_model(ix)
-    mx2y = mapping_x_to_y(fx)
-    rx2y = reconstruction_model(mx2y)
-  
-    iy = Input(shape=init_shape)	
-    fy = feature_model(iy)
-    my2x = mapping_y_to_x(fy)
-    ry2x = reconstruction_model(my2x)
-
-    fx2y = feature_model(rx2y)
-    mx2y2x = mapping_y_to_x(fx2y)
-    rx2y2x = reconstruction_model(mx2y2x)  
-
-    fy2x = feature_model(ry2x)
-    my2x2y = mapping_x_to_y(fy2x)
-    ry2x2y = reconstruction_model(my2x2y)  
-
     return Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2y2x,ry2x2y])  
+
+  if mode == 8:
+    return Model(inputs=ix, outputs=rx)  
+
+  if mode == 9:
+    return Model(inputs=ix, outputs=[rx2y,rx])
+
 
 def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
   ix = Input(shape=init_shape)	
