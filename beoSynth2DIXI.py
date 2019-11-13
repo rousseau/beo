@@ -17,33 +17,67 @@ from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 import matplotlib.pyplot as plt
 import nibabel
-from dataset import get_ixi_2dpatches
+from dataset import get_ixi_2dpatches, get_hcp_2dpatches
 import subprocess
 
 #%%
+ 
+def show_patches(patch_list,filename):
+
+  n_rows = patch_list[0].shape[0]
+  n_cols = len(patch_list)
+
+  vmin = -2 
+  vmax = 2
+  plt.figure(figsize=(2. * n_cols, 2. * n_rows))
+  for i in range(n_rows):
+    for j in range(n_cols):
+      sub = plt.subplot(n_rows, n_cols, i*n_cols+1+j)
+      sub.imshow(patch_list[j][i,:,:,0],
+                 cmap=plt.cm.gray,
+                 interpolation="nearest",
+                 vmin=vmin,vmax=vmax)
+      sub.axis('off')
+  plt.axis('off')
+  plt.savefig(filename,dpi=150, bbox_inches='tight')
+  plt.close()
+
+
 
 
 print(K.image_data_format())
 from os.path import expanduser
 home = expanduser("~")
-output_path = home+'/Sync/Experiments/IXI/'
+dataset = 'HCP'
+output_path = home+'/Sync/Experiments/'+dataset+'/'
 
-patch_size = 80
+patch_size = 80 
 load_pickle_patches = 1
 
 if load_pickle_patches == 0:
-  n_patches = 50 #per slice
-  (T1_2D,T2_2D,PD_2D) = get_ixi_2dpatches(patch_size = patch_size, n_patches = n_patches)
-  joblib.dump(T1_2D,home+'/Exp/T1_2D.pkl', compress=True)
-  joblib.dump(T2_2D,home+'/Exp/T2_2D.pkl', compress=True)
-  joblib.dump(PD_2D,home+'/Exp/PD_2D.pkl', compress=True)
+
+  if dataset == 'IXI':  
+    n_patches = 100 #per slice 
+    (T1_2D,T2_2D,PD_2D) = get_ixi_2dpatches(patch_size = patch_size, n_patches = n_patches)
+    joblib.dump(T1_2D,home+'/Exp/T1_2D.pkl', compress=True)
+    joblib.dump(T2_2D,home+'/Exp/T2_2D.pkl', compress=True)
+    joblib.dump(PD_2D,home+'/Exp/PD_2D.pkl', compress=True)
+  if dataset == 'HCP':  
+    n_patches = 50 #per slice 
+    (T1_2D,T2_2D) = get_hcp_2dpatches(patch_size = patch_size, n_patches = n_patches)
+    joblib.dump(T1_2D,home+'/Exp/HCP_T1_2D.pkl', compress=True)
+    joblib.dump(T2_2D,home+'/Exp/HCP_T2_2D.pkl', compress=True)
   
 else:  
   print('Loading gzip pickle files')  
-  T1_2D = joblib.load(home+'/Exp/T1_2D.pkl')
-  T2_2D = joblib.load(home+'/Exp/T2_2D.pkl')
-  PD_2D = joblib.load(home+'/Exp/PD_2D.pkl')
-  
+  if dataset == 'IXI':
+    T1_2D = joblib.load(home+'/Exp/T1_2D.pkl')
+    T2_2D = joblib.load(home+'/Exp/T2_2D.pkl')
+    PD_2D = joblib.load(home+'/Exp/PD_2D.pkl')
+  if dataset == 'HCP':  
+    T1_2D = joblib.load(home+'/Exp/HCP_T1_2D.pkl')
+    T2_2D = joblib.load(home+'/Exp/HCP_T2_2D.pkl')
+    
   print(T1_2D.shape)
 
 
@@ -66,10 +100,10 @@ n_channelsY = 1
 n_filters = 32
 n_layers = 2 
 n_layers_residual = 2
-learning_rate = 0.0001
+learning_rate = 0.00001
 loss = 'mae' 
-batch_size = 128 
-epochs = 25
+batch_size = 32 
+epochs = 100
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
@@ -78,11 +112,19 @@ n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
  
 lw1 = 1 #loss weight direct mapping
 lw2 = 0 #loss weight inverse mapping
-lw3 = 0 #loss weight identity mapping
+lw3 = 0 #loss weight identity mapping on x
+lw4 = 0 #loss weight identity mapping on y
+lw5 = 0 #loss weight cycle for x
+lw6 = 0 #loss weight cycle for y
+lw7 = 0.1 #loss weight autoencoder for x
+lw8 = 0 #loss weight autoencoder for y
 
+lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
+   
 inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
+mode = 8     
 
 prefix = 'iclr_nowindowing'
 if use_optim == 1:
@@ -100,7 +142,9 @@ prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
 prefix+= '_nl'+str(n_layers)
 prefix+= '_nlr'+str(n_layers_residual)
-prefix+= '_lw'+str(lw1)+'_'+str(lw2)+'_'+str(lw3)
+if mode == -1:
+  prefix+= '_lw'+str(lw1)+'_'+str(lw2)+'_'+str(lw3)+'_'+str(lw4)+'_'+str(lw5)+'_'+str(lw6)+'_'+str(lw7)+'_'+str(lw8)
+prefix+= '_mode'+str(mode)
 prefix+= '_'
 
 if K.image_data_format() == 'channels_first':
@@ -138,46 +182,70 @@ mapping_reversible_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feat
 
 model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
 
-model_mode = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = 6)
+model_mode = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = mode)
 
 #Select the model to optimze wrt.
 if n_gpu > 1:
-  model = multi_gpu_model(model_mode, gpus=n_gpu)
+  model_mode_gpu = multi_gpu_model(model_mode, gpus=n_gpu)
+  model_all_gpu = multi_gpu_model(model_all, gpus=n_gpu)
   batch_size = batch_size * n_gpu
 else:
-  model = model_mode
+  model_mode_gpu = model_mode
+  model_all_gpu = model_all
   
-model_all.compile(optimizer=Adam(lr=learning_rate), 
-                 loss=loss,
-                 loss_weights=[lw1,lw2,lw3,lw3])
-model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
-model.summary()
+# model_all.compile(optimizer=Adam(lr=learning_rate), 
+#                  loss=loss)#,
+                 #loss_weights=[lw1,lw2,lw3,lw3])
+model_all_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=lws)
+model_mode_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+
+model_mode_gpu.summary()
+
+print('mode : '+str(mode))
 
 #%%
-for e in range(epochs):
+for epoch in range(epochs):
   lr = learning_rate
-  if e > 5:  
-    lr *= 0.1
-  if e > 10:
-    lr *= 0.1
-  if e > 25:
-    lr *= 0.1
-
+  if epoch > 10:  
+    lr *= 0.5
+  if epoch > 25:
+    lr *= 0.5
+  if epoch > 40:
+    lr *= 0.5
+  if epoch > 60:
+    lr *= 0.5
  
+  
   print('current learning rate : '+str(lr))
    
-  model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+#  model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+  model_all_gpu.compile(optimizer=Adam(lr=lr), loss=loss, loss_weights=lws)
+  model_mode_gpu.compile(optimizer=Adam(lr=lr), loss=loss)
 #  model.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  model.fit(x=[T2_2D], y=[T1_2D,T2_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == 0:
+    model_mode_gpu.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == 2:
+    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 5:
+    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 6:
+    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 7:
+    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 8:
+    model_mode_gpu.fit(x=T2_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 9:
+    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
 
-  #model.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == -1:
+    model_all_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D,T2_2D,T1_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
   
   n = 10
-  step = 100
+  step = 10000
   t2 = T2_2D[0:n*step:step,:,:,:]
   t1 = T1_2D[0:n*step:step,:,:,:]
-  [a,b,c,d,e,f,g,h] = model_all.predict(x=[t2,t1], batch_size = batch_size)
-
+  [a,b,c,d,e,f,g,h] = model_all_gpu.predict(x=[t2,t1], batch_size = batch_size)
+ 
   print('mse synthesis t1 : '+str(np.mean((t1 - a)**2)))
   print('mse synthesis t2 : '+str(np.mean((t2 - b)**2)))
   print('mse identity mapping t2 : '+str(np.mean((t2 - c)**2)))
@@ -187,76 +255,32 @@ for e in range(epochs):
   print('mse identity t2 : '+str(np.mean((t2 - g)**2)))
   print('mse identity t1 : '+str(np.mean((t1 - h)**2)))
 
+  show_patches(patch_list=[t2,t1,a,b,c,d,e,f,g,h],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
 
-  n_cols = 6
-  n_rows = n
-  #index = np.random.permutation(T1.shape[0])
-  #
-  vmin = -2
-  vmax = 2
-  plt.figure(figsize=(2. * n_cols, 2. * n_rows))
-  for i in range(n):
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+1)
-    sub.imshow(t2[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub.axis('off')             
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+2)
-    sub.imshow(t1[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub.axis('off')             
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+3)  
-    sub.imshow(a[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub.axis('off')             
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+4)  
-    sub.imshow(b[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub.axis('off')             
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+5)  
-    sub.imshow(c[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub = plt.subplot(n_rows, n_cols, i*n_cols+6)  
-    sub.axis('off')             
-    sub.imshow(d[i,:,:,0],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-    sub.axis('off')             
-    
-  #plt.show()
-  plt.axis('off')
-  plt.savefig(output_path+prefix+'_current'+str(e)+'fig_patches.png',dpi=150, bbox_inches='tight')
-  plt.close()
+  [a,b] = model_mode_gpu.predict(x=t2, batch_size = batch_size)
+  show_patches(patch_list=[t2,t1,a,b],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches_checkmode.png')
+ 
 
 #%%
-  #Check if the model is reversible
-from keras.layers import Input
-from keras.models import Model
 
-x = Input(shape=init_shape)	
-fx= feature_model(x)
-mx= mapping_reversible_T2_to_T1(fx)
-my= mapping_reversible_T1_to_T2(mx)
-tmpmodel = Model(inputs=x, outputs=[fx,my])
-tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
-                  loss=loss)
+#   #Check if the model is reversible
+# from keras.layers import Input
+# from keras.models import Model
 
-[a,b] = tmpmodel.predict(x=T2_2D[0:n*step:step,:,:,:], batch_size = batch_size)
-print('Error on reversible mapping : '+str(np.linalg.norm(a-b)))  
-#%%  
+# x = Input(shape=init_shape)	
+# fx= feature_model(x)
+# mx= mapping_reversible_T2_to_T1(fx)
+# my= mapping_reversible_T1_to_T2(mx)
+# tmpmodel = Model(inputs=x, outputs=[fx,my])
+# tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
+#                   loss=loss)
 
-#Apply on a test image
-T1image = nibabel.load(output_path+'IXI661-HH-2788-T1_N4.nii.gz')
-T2image = nibabel.load(output_path+'IXI661-HH-2788-T2_N4.nii.gz')
-PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD_N4.nii.gz')
-maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
+# [a,b] = tmpmodel.predict(x=T2_2D[0:n*step:step,:,:,:], batch_size = batch_size)
+# print('Error on reversible mapping : '+str(np.linalg.norm(a-b)))  
+# #%%  
+
+# #Apply on a test image
+# T1image = nibabel.load(output_path+'IXI661-HH-2788-T1_N4.nii.gz')
+# T2image = nibabel.load(output_path+'IXI661-HH-2788-T2_N4.nii.gz')
+# PDimage = nibabel.load(output_path+'IXI661-HH-2788-PD_N4.nii.gz')
+# maskarray = nibabel.load(output_path+'IXI661-HH-2788-T1_bet_mask.nii.gz').get_data().astype(float)
