@@ -102,8 +102,8 @@ n_layers = 2
 n_layers_residual = 2
 learning_rate = 0.00001
 loss = 'mae' 
-batch_size = 32 
-epochs = 100
+batch_size = 32  
+epochs = 20
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
@@ -116,7 +116,7 @@ lw3 = 0 #loss weight identity mapping on x
 lw4 = 0 #loss weight identity mapping on y
 lw5 = 0 #loss weight cycle for x
 lw6 = 0 #loss weight cycle for y
-lw7 = 0.1 #loss weight autoencoder for x
+lw7 = 0 #loss weight autoencoder for x
 lw8 = 0 #loss weight autoencoder for y
 
 lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
@@ -124,7 +124,8 @@ lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
 inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
-mode = 8     
+reversible = 1
+mode = -1      
 
 prefix = 'iclr_nowindowing'
 if use_optim == 1:
@@ -135,6 +136,8 @@ if cycle_consistency == 1:
   prefix += '_cycle'
 if identity_consistency == 1:
   prefix += '_idc'  
+if reversible == 1:
+  prefix += '_rev'    
 if shared_blocks == 1:
   prefix += '_shared'  
 prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(T1_2D.shape[0])
@@ -164,25 +167,34 @@ recon_model = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_chann
 #block_f_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
 #block_g_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
 
-block_f_T2_to_T1 = []
-block_g_T2_to_T1 = []
-if shared_blocks == 0:
-  for l in range(n_layers):
-    block_f_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
-    block_g_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+
+
+if reversible == 1:  
+  block_f_T2_to_T1 = []
+  block_g_T2_to_T1 = []
+  if shared_blocks == 0:
+    for l in range(n_layers):
+      block_f_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+      block_g_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+  else:
+    bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+    bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+    for l in range(n_layers):
+      block_f_T2_to_T1.append(bf)
+      block_g_T2_to_T1.append(bg)
+
+  mapping_T2_to_T1 = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
+  mapping_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
+
 else:
-  bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-  bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-  for l in range(n_layers):
-    block_f_T2_to_T1.append(bf)
-    block_g_T2_to_T1.append(bg)
+  block_T2_to_T1 =  build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) 
+  mapping_T2_to_T1 = build_forward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
+  mapping_T1_to_T2 = build_backward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
   
-mapping_reversible_T2_to_T1 = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
-mapping_reversible_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
 
-model_all = build_4_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model)
+model_all = build_4_model(init_shape, feature_model, mapping_T2_to_T1, mapping_T1_to_T2, recon_model)
 
-model_mode = build_model(init_shape, feature_model, mapping_reversible_T2_to_T1, mapping_reversible_T1_to_T2, recon_model, mode = mode)
+model_mode = build_model(init_shape, feature_model, mapping_T2_to_T1, mapping_T1_to_T2, recon_model, mode = mode)
 
 #Select the model to optimze wrt.
 if n_gpu > 1:
@@ -200,10 +212,14 @@ model_all_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=
 model_mode_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
 model_mode_gpu.summary()
-
+print('The All model:')
+model_all_gpu.summary()
 print('mode : '+str(mode))
 
 #%%
+
+losses = None
+
 for epoch in range(epochs):
   lr = learning_rate
   if epoch > 10:  
@@ -224,6 +240,8 @@ for epoch in range(epochs):
 #  model.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
   if mode == 0:
     model_mode_gpu.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == 1:
+    model_mode_gpu.fit(x=T1_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
   if mode == 2:
     model_mode_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
   if mode == 5:
@@ -236,10 +254,17 @@ for epoch in range(epochs):
     model_mode_gpu.fit(x=T2_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
   if mode == 9:
     model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
+  if mode == 12:
+    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == 15:
+    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  if mode == 19:
+    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+
 
   if mode == -1:
     model_all_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D,T2_2D,T1_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  
+   
   n = 10
   step = 10000
   t2 = T2_2D[0:n*step:step,:,:,:]
@@ -254,11 +279,62 @@ for epoch in range(epochs):
   print('mse cycle t1 : '+str(np.mean((t1 - f)**2)))
   print('mse identity t2 : '+str(np.mean((t2 - g)**2)))
   print('mse identity t1 : '+str(np.mean((t1 - h)**2)))
-
+ 
   show_patches(patch_list=[t2,t1,a,b,c,d,e,f,g,h],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
+ 
+  # if mode == 0:
+  #   a = model_mode_gpu.predict(x=t2, batch_size = batch_size)
+  #   show_patches(patch_list=[t2,t1,a],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches_checkmode.png')
+  # if mode == 2:
+  #   [a,b] = model_mode_gpu.predict(x=[t2,t1], batch_size = batch_size)
+  #   show_patches(patch_list=[t2,t1,a,b],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches_checkmode.png')
 
-  [a,b] = model_mode_gpu.predict(x=t2, batch_size = batch_size)
-  show_patches(patch_list=[t2,t1,a,b],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches_checkmode.png')
+  # if mode == 2:
+  #   print('computing and plotting prediction errors')
+  #   [A,B] =  model_mode_gpu.predict(x=[T2_2D,T1_2D], batch_size = batch_size)
+  #   ErrorA = np.abs(T1_2D - A)
+  #   ErrorA = np.reshape(ErrorA,(ErrorA.shape[0],-1))
+  #   ErrorA = np.mean(ErrorA, axis=1)
+  #   print('shape error A')
+  #   print(ErrorA.shape)
+  #   print('Mean error : '+str(np.mean(ErrorA)))
+  #   plt.figure()
+  #   plt.plot(ErrorA) 
+  #   plt.savefig(output_path+prefix+'_current'+str(epoch)+'_errorA.png',dpi=150, bbox_inches='tight')
+  #   plt.close()    
+ 
+
+  # tmp =  model_all_gpu.predict(x=[T2_2D,T1_2D], batch_size = batch_size) 
+  # res = np.zeros((1,8))
+  # res[0,0] = np.mean((T1_2D - tmp[0])**2)
+  # res[0,1] = np.mean((T2_2D - tmp[1])**2)
+  # res[0,2] = np.mean((T2_2D - tmp[2])**2)
+  # res[0,3] = np.mean((T1_2D - tmp[3])**2)
+  # res[0,4] = np.mean((T2_2D - tmp[4])**2)
+  # res[0,5] = np.mean((T1_2D - tmp[5])**2)
+  # res[0,6] = np.mean((T2_2D - tmp[6])**2)
+  # res[0,7] = np.mean((T1_2D - tmp[7])**2)
+
+  # print('res : ')
+  # print(res)
+  # print('keras evaluate : ')
+  # print(model_all_gpu.evaluate(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D,T2_2D,T1_2D,T2_2D,T1_2D], batch_size = batch_size))
+ 
+  # if losses is None:
+  #   losses = np.copy(res)
+  # else:
+  #   losses = np.concatenate((losses,res),axis=0)
+
+  # print('losses shape:')
+  # print(losses.shape)
+  # plt.figure()
+  # plt.plot(losses)
+  # plt.xlabel('epochs')
+  # plt.legend(['synthesis T2','synthesis T1', 'id. mapping T2', 'id. mapping T1', 'cycle T2', 'cycle T1', 'id. T2', 'id. T1'], loc='upper right')
+  # plt.savefig(output_path+prefix+'_losses.png',dpi=150, bbox_inches='tight')
+  # plt.close()
+  
+
  
 
 #%%
