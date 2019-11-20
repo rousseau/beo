@@ -1,9 +1,9 @@
 import keras.backend as K
 from keras.models import Model
-from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda
-from keras.layers import Conv2D, UpSampling2D
+from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda, Dropout, Conv2DTranspose
+from keras.layers import Conv2D, UpSampling2D, GlobalAveragePooling2D
 from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
-from keras.layers import concatenate, Flatten
+from keras.layers import concatenate, Flatten, Multiply
 from keras.regularizers import l1, l2
 from keras.constraints import max_norm
 
@@ -165,6 +165,46 @@ def build_feature_model(init_shape, n_filters=32, kernel_size=3):
   model = Model(inputs=inputs, outputs=features)
   return model
 
+def conv_block_2d(input,n_filters,bn, do=0):
+  n = Conv2D(n_filters, 3, activation='relu', padding='same')(input)
+  n = BatchNormalization()(n) if bn else n
+  n = Dropout(do)(n) if do else n
+  n = Conv2D(n_filters, 3, activation='relu', padding='same')(n)
+  n = BatchNormalization()(n) if bn else n
+  return n
+
+
+def build_encoder_2d(init_shape, n_filters=32, n_levels = 3):
+      
+  inputs = Input(shape=init_shape)  
+  features = inputs
+ 
+  for n in range(n_levels):
+    features = conv_block_2d(features, n_filters, bn=False, do=0.5)
+    features = Conv2D(n_filters, 3, strides=2, padding='same')(features)
+
+  features = Activation('tanh')(features)
+  
+  model = Model(inputs=inputs, outputs=features)
+  return model
+
+def build_decoder_2d(init_shape, n_filters=32, n_levels = 3):
+  inputs = Input(shape=init_shape)
+  recon = inputs
+
+  for n in range(n_levels):
+    recon = Conv2DTranspose(n_filters, 3, strides=2, activation='relu', padding='same')(recon)
+    recon = conv_block_2d(recon, n_filters, bn=False, do=0.5)
+
+  recon = Conv2D(filters=1, kernel_size=3, padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=True,
+                    strides=1)(recon)
+#  recon=(Activation('linear'))(recon)
+  
+  model = Model(inputs=inputs, outputs=recon)
+  return model
+
+
 def build_feature_model_2d(init_shape, n_filters=32, kernel_size=3):
   if K.image_data_format() == 'channels_first':
     channel_axis = 1
@@ -176,13 +216,13 @@ def build_feature_model_2d(init_shape, n_filters=32, kernel_size=3):
   features = inputs
       
   features = Conv2D((int)(n_filters/2), (kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
-                    use_bias=False,
+                    use_bias=True,
                     strides=1)(features)
   features = BatchNormalization(axis=channel_axis)(features)
   features = Activation('relu')(features) 
   
   features = Conv2D(filters=n_filters, kernel_size=(3,3), padding='same', kernel_initializer='glorot_uniform',
-                    use_bias=False,
+                    use_bias=True,
                     strides=2)(features)
   features = BatchNormalization(axis=channel_axis)(features)
   features = Activation('tanh')(features)
@@ -237,13 +277,19 @@ def build_recon_model_2d(init_shape, n_channelsY=1, n_filters=32, kernel_size=3)
 
   recon=(UpSampling2D((2, 2)))(input_recon)  
   recon = Conv2D(filters=n_filters, kernel_size=(3, 3), padding='same', kernel_initializer='glorot_uniform',
-                    use_bias=False,
+                    use_bias=True,
+                    strides=1)(recon)
+  recon = BatchNormalization(axis=channel_axis)(recon)
+  recon = Activation('relu')(recon)
+
+  recon = Conv2D(filters=(int)(n_filters/2), kernel_size=(3, 3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=True,
                     strides=1)(recon)
   recon = BatchNormalization(axis=channel_axis)(recon)
   recon = Activation('relu')(recon)
   
   recon = Conv2D(filters=n_channelsY, kernel_size=(kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
-                    use_bias=False,
+                    use_bias=True,
                     strides=1)(recon)
 #  recon=(Activation('linear'))(recon)
   
@@ -528,7 +574,7 @@ def build_forward_model(init_shape, block_model, n_layers, scaling=None):
     
   x = input_block
   for i in range(n_layers):
-    xx = block_model(x)
+    xx = block_model[i](x)
     #Add scaling for multiresolution optimization
     xx = Lambda(lambda x: x * scaling)(xx)
     x = Add()([xx,x])     
@@ -545,8 +591,15 @@ def build_backward_model(init_shape, block_model, n_layers):
 
   x = input_block
   for i in range(n_layers):
-    xx = block_model(x)
-    x = Subtract()([x,xx])   
+    #Third order approximation of v, the inverse of u.
+    #v = -u + u² -u³ ...
+    x1 = block_model[i](x)
+    x2 = Multiply()([x1,x1])
+    x3 = Multiply()([x2,x1])    
+    x = Subtract()([x,x1])   
+    x = Add()([x,x2])
+    x = Subtract()([x,x3])   
+       
   output_block = x
   
   model = Model(inputs=input_block, outputs=output_block)
@@ -666,10 +719,50 @@ def build_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, recon
     return Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2y2x,ry2x2y])  
 
   if mode == 8:
-    return Model(inputs=ix, outputs=rx)  
+    return Model(inputs=ix, outputs=[rx])  
 
   if mode == 9:
     return Model(inputs=ix, outputs=[rx2y,rx])
+
+  if mode == 12: #same as mode 2 but manual loss computation
+    errx2y = Subtract()([rx2y,iy])
+    errx2y = Lambda(lambda x:K.pow(x,2))(errx2y)
+    errx2y = GlobalAveragePooling2D()(errx2y)
+    errx2y = Reshape((1,))(errx2y)
+
+    erry2x = Subtract()([ry2x,ix])
+    erry2x = Lambda(lambda x:K.pow(x,2))(erry2x)
+    erry2x = GlobalAveragePooling2D()(erry2x)
+    erry2x = Reshape((1,))(erry2x)
+    errsum = Add()([errx2y, erry2x])
+
+    return Model(inputs=[ix,iy], outputs=errsum)
+
+  if mode == 15: #same as mode 5 but manual loss computation
+    errx2y = Subtract()([rx2y,iy])
+    errx2y = Lambda(lambda x:K.pow(x,2))(errx2y)
+    errx2y = GlobalAveragePooling2D()(errx2y)
+    errx2y = Reshape((1,))(errx2y)
+
+    errx2y2x = Subtract()([rx2y2x,ix])
+    errx2y2x = Lambda(lambda x:K.pow(x,2))(errx2y2x)
+    errx2y2x = GlobalAveragePooling2D()(errx2y2x)
+    errx2y2x = Reshape((1,))(errx2y2x)
+    errsum = Add()([errx2y, errx2y2x])
+
+  if mode == 19: #same as mode 9 but manual loss computation
+    errx2y = Subtract()([rx2y,iy])
+    errx2y = Lambda(lambda x:K.pow(x,2))(errx2y)
+    errx2y = GlobalAveragePooling2D()(errx2y)
+    errx2y = Reshape((1,))(errx2y)
+
+    errrx = Subtract()([rx,ix])
+    errrx = Lambda(lambda x:K.pow(x,2))(errrx)
+    errrx = GlobalAveragePooling2D()(errrx)
+    errrx = Reshape((1,))(errrx)
+    errsum = Add()([errx2y, errrx])
+
+    return Model(inputs=[ix,iy], outputs=errsum)
 
 
 def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
