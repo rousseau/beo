@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import nibabel
 from dataset import get_ixi_2dpatches, get_hcp_2dpatches
 import subprocess
+import socket
 
 #%%
  
@@ -89,18 +90,19 @@ n_filters = 32
 n_layers = 2 
 n_layers_residual = 2
 learning_rate = 0.00001
-loss = 'mse' 
-batch_size = 64   
-epochs = 20
+loss = 'mae' 
+batch_size = 32     
+epochs = 10    
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
-reversible = 1 
-f_shared = 1
-r_shared = 0
+reversible = 0 
+f_shared = 1  
+r_shared = 1
+n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID') #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
+encdec = 1
+n_levels = 1 #Check for 0 level, there is a bug...  
 
-#Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
-n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
 
 if K.image_data_format() == 'channels_first':
   init_shape = (n_channelsX, None, None)
@@ -115,25 +117,26 @@ else:
   
 #%%
 
-fm_x2y = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
-fm_y2x = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
-fm = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
+if encdec == 0:
+  fm_x2y = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
+  fm_y2x = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
+  fm = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
 
 
-rm_x2y = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
-rm_y2x = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
-rm = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
+  rm_x2y = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
+  rm_y2x = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
+  rm = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
 
-# n_levels = 3
+else:
 
-# fm_x2y = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
-# fm_y2x = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
-# fm = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
+  fm_x2y = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
+  fm_y2x = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
+  fm = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
 
 
-# rm_x2y = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
-# rm_y2x = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
-# rm = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
+  rm_x2y = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
+  rm_y2x = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
+  rm = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
 
 
 if reversible == 1:  
@@ -201,6 +204,9 @@ print('r_shared : '+str(r_shared))
 print('reversible : '+str(reversible))
 print('batch_size : '+str(batch_size))
 print('n_filters : '+str(n_filters))
+print('n_gpu : '+str(n_gpu))
+
+info = '_gpu'+str(n_gpu)+'_bs'+str(batch_size)+'_nf'+str(n_filters)+'_f'+str(f_shared)+'_r'+str(r_shared)+'_rev'+str(reversible)+'_enc'+str(encdec)+'_nlevels'+str(n_levels)
 
 #%%
 
@@ -229,28 +235,51 @@ step = 10000
 t2 = T2_2D[0:n*step:step,:,:,:]
 t1 = T1_2D[0:n*step:step,:,:,:]
 
+loss_t2 = []
+loss_t1 = []
+loss_keras=[]
 for epoch in range(epochs):
 
-  model_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  # if epoch == 0:
+  #   batch_size = 16
+  # if epoch == 5:
+  #   batch_size = 32
+  # if epoch == 10:
+  #   batch_size = 64
+  # if epoch == 15:
+  #   batch_size = 128 
+    
+    
+  hist = model_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  loss_keras.append(hist.history['loss'])
   #model_x2y_gpu.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
 
   a = model_x2y_gpu.predict(x=t2, batch_size = batch_size)
   print('keras loss : '+str(model_x2y_gpu.evaluate(x=t2, y=t1)))
   print('mae synthesis t1 : '+str(np.mean(np.abs(t1 - a))))
-  
+  loss_t1.append(np.mean(np.abs(t1 - a)))
   #model_y2x_gpu.fit(x=T1_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
 
   b = model_y2x_gpu.predict(x=t1, batch_size = batch_size)
   print('keras loss : '+str(model_y2x_gpu.evaluate(x=t1, y=t2)))  
   print('mae synthesis t2 : '+str(np.mean(np.abs(t2 - b))))
-  
+  loss_t2.append(np.mean(np.abs(t2 - b)))
+
   [a,b] = model_gpu.predict(x=[t2,t1], batch_size = batch_size) 
   print('keras loss : ')
   print(model_gpu.evaluate(x=[t2,t1], y=[t1,t2]))    
   print('mae synthesis t1 : '+str(np.mean(np.abs(t1 - a))))
   print('mae synthesis t2 : '+str(np.mean(np.abs(t2 - b))))
  
-  show_patches(patch_list=[t2,t1,a,b],filename=output_path+'debug'+str(n_gpu)+'_current'+str(epoch)+'fig_patches.png')
+  show_patches(patch_list=[t2,t1,a,b],filename=output_path+socket.gethostname()+info+'_e'+str(epoch)+'fig_patches.png')
+
+  plt.figure()
+  plt.plot(loss_t1)
+  plt.plot(loss_t2)
+  plt.plot(loss_keras)
+  plt.legend(['T1', 'T2', 'keras'])
+  plt.savefig(output_path+socket.gethostname()+info+'_loss.png',dpi=150, bbox_inches='tight')
+  plt.close()
 
 #%%
 
