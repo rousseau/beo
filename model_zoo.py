@@ -180,7 +180,7 @@ def build_encoder_2d(init_shape, n_filters=32, n_levels = 3):
   features = inputs
  
   for n in range(n_levels):
-    features = conv_block_2d(features, n_filters, bn=False, do=0.5)
+    features = conv_block_2d(features, n_filters, bn=False, do=0)
     features = Conv2D(n_filters, 3, strides=2, padding='same')(features)
 
   features = Activation('tanh')(features)
@@ -194,7 +194,7 @@ def build_decoder_2d(init_shape, n_filters=32, n_levels = 3):
 
   for n in range(n_levels):
     recon = Conv2DTranspose(n_filters, 3, strides=2, activation='relu', padding='same')(recon)
-    recon = conv_block_2d(recon, n_filters, bn=False, do=0.5)
+    recon = conv_block_2d(recon, n_filters, bn=False, do=0)
 
   recon = Conv2D(filters=1, kernel_size=3, padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
