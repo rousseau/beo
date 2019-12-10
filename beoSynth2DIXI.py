@@ -11,19 +11,22 @@ import joblib
 import numpy as np
 import keras.backend as K
 from model_zoo import build_feature_model_2d, build_recon_model_2d, build_block_model_2d
+from model_zoo import build_encoder_2d, build_decoder_2d
 from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition, build_model
 from model_zoo import build_exp_model, fm_model, build_reversible_forward_model_2d, build_reversible_backward_model_2d, build_4_model
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 import matplotlib.pyplot as plt
-import nibabel
 from dataset import get_ixi_2dpatches, get_hcp_2dpatches
+from sklearn.model_selection import train_test_split
 import subprocess
+import socket
 
 #%%
  
 def show_patches(patch_list,filename):
 
+  titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$']
   n_rows = patch_list[0].shape[0]
   n_cols = len(patch_list)
 
@@ -38,17 +41,17 @@ def show_patches(patch_list,filename):
                  interpolation="nearest",
                  vmin=vmin,vmax=vmax)
       sub.axis('off')
+      if i == 0:
+        sub.set_title(titles[j])
   plt.axis('off')
   plt.savefig(filename,dpi=150, bbox_inches='tight')
   plt.close()
 
-
-
-
 print(K.image_data_format())
 from os.path import expanduser
 home = expanduser("~")
-dataset = 'HCP'
+
+dataset = 'HCP' #HCP or IXI
 output_path = home+'/Sync/Experiments/'+dataset+'/'
 
 patch_size = 80 
@@ -80,6 +83,16 @@ else:
     
   print(T1_2D.shape)
 
+#%%
+ratio_training_testing = 0.75
+n_samples = T1_2D.shape[0]
+
+x_train = T2_2D[0:(int)(n_samples*ratio_training_testing)]
+x_test  = T2_2D[(int)(n_samples*ratio_training_testing):-1]
+
+y_train = T1_2D[0:(int)(n_samples*ratio_training_testing)]
+y_test  = T1_2D[(int)(n_samples*ratio_training_testing):-1]
+
 
 #plt.figure()  
 #
@@ -102,16 +115,17 @@ n_layers = 2
 n_layers_residual = 2
 learning_rate = 0.00001
 loss = 'mae' 
-batch_size = 32  
-epochs = 20
+batch_size = 128  
+epochs = 5
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
+reversible = 1 
 #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
 n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
  
 lw1 = 1 #loss weight direct mapping
-lw2 = 0 #loss weight inverse mapping
+lw2 = 1 #loss weight inverse mapping
 lw3 = 0 #loss weight identity mapping on x
 lw4 = 0 #loss weight identity mapping on y
 lw5 = 0 #loss weight cycle for x
@@ -125,9 +139,11 @@ inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
 reversible = 1
-mode = -1      
+encdec = 1
+n_levels = 1 #Check for 0 level, there is a bug...  
+  
 
-prefix = 'iclr_nowindowing'
+prefix = socket.gethostname()+'_'+dataset
 if use_optim == 1:
   prefix += '_optim'
 if inverse_consistency == 1:
@@ -145,9 +161,8 @@ prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
 prefix+= '_nl'+str(n_layers)
 prefix+= '_nlr'+str(n_layers_residual)
-if mode == -1:
-  prefix+= '_lw'+str(lw1)+'_'+str(lw2)+'_'+str(lw3)+'_'+str(lw4)+'_'+str(lw5)+'_'+str(lw6)+'_'+str(lw7)+'_'+str(lw8)
-prefix+= '_mode'+str(mode)
+prefix+= '_lw'+str(lw1)+'_'+str(lw2)+'_'+str(lw3)+'_'+str(lw4)+'_'+str(lw5)+'_'+str(lw6)+'_'+str(lw7)+'_'+str(lw8)
+prefix+= '_encdec'+str(encdec)
 prefix+= '_'
 
 if K.image_data_format() == 'channels_first':
@@ -160,115 +175,83 @@ else:
   feature_shape = (None, None, n_filters)
   half_feature_shape = (None, None, (int)(n_filters/2))
   channel_axis = -1  
-      
-feature_model = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
-recon_model = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
 
-#block_f_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-#block_g_T2_to_T1 = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-
-
+if encdec == 0:      
+  feature_model = build_feature_model_2d(init_shape=init_shape, n_filters=n_filters, kernel_size=kernel_size)
+  recon_model = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
+else:
+  feature_model = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
+  recon_model = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
+  
 
 if reversible == 1:  
-  block_f_T2_to_T1 = []
-  block_g_T2_to_T1 = []
+  block_f_x2y = []
+  block_g_x2y = []
   if shared_blocks == 0:
     for l in range(n_layers):
-      block_f_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
-      block_g_T2_to_T1.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+      block_f_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+      block_g_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
   else:
     bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
     bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
     for l in range(n_layers):
-      block_f_T2_to_T1.append(bf)
-      block_g_T2_to_T1.append(bg)
+      block_f_x2y.append(bf)
+      block_g_x2y.append(bg)
 
-  mapping_T2_to_T1 = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
-  mapping_T1_to_T2 = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_T2_to_T1, block_g = block_g_T2_to_T1, n_layers=n_layers)
+  mapping_x2y = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_x2y, block_g = block_g_x2y, n_layers=n_layers)
+  mapping_y2x = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_x2y, block_g = block_g_x2y, n_layers=n_layers)
 
 else:
-  block_T2_to_T1 =  build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) 
-  mapping_T2_to_T1 = build_forward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
-  mapping_T1_to_T2 = build_backward_model(init_shape=feature_shape, block_model=block_T2_to_T1, n_layers=n_layers)
+  block_x2y = []
+  if shared_blocks == 0:
+    for l in range(n_layers):
+      block_x2y.append( build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) )
+  else:
+    b = build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual)
+    for l in range(n_layers):
+      block_x2y.append(b)
+
+  mapping_x2y = build_forward_model(init_shape=feature_shape, block_model=block_x2y, n_layers=n_layers)
+  mapping_y2x = build_backward_model(init_shape=feature_shape, block_model=block_x2y, n_layers=n_layers)
   
 
-model_all = build_4_model(init_shape, feature_model, mapping_T2_to_T1, mapping_T1_to_T2, recon_model)
-
-model_mode = build_model(init_shape, feature_model, mapping_T2_to_T1, mapping_T1_to_T2, recon_model, mode = mode)
+model_all = build_4_model(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
 
 #Select the model to optimze wrt.
 if n_gpu > 1:
-  model_mode_gpu = multi_gpu_model(model_mode, gpus=n_gpu)
   model_all_gpu = multi_gpu_model(model_all, gpus=n_gpu)
   batch_size = batch_size * n_gpu
 else:
-  model_mode_gpu = model_mode
   model_all_gpu = model_all
   
 # model_all.compile(optimizer=Adam(lr=learning_rate), 
 #                  loss=loss)#,
                  #loss_weights=[lw1,lw2,lw3,lw3])
 model_all_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=lws)
-model_mode_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss)
 
-model_mode_gpu.summary()
 print('The All model:')
 model_all_gpu.summary()
-print('mode : '+str(mode))
 
 #%%
 
 losses = None
 
+psnr_a = []
+psnr_b = []
+psnr_c = []
+psnr_d = []
+psnr_e = []
+psnr_f = []
+psnr_g = []
+psnr_h = []
+
 for epoch in range(epochs):
-  lr = learning_rate
-  if epoch > 10:  
-    lr *= 0.5
-  if epoch > 25:
-    lr *= 0.5
-  if epoch > 40:
-    lr *= 0.5
-  if epoch > 60:
-    lr *= 0.5
- 
-  
-  print('current learning rate : '+str(lr))
-   
-#  model.compile(optimizer=Adam(lr=learning_rate), loss=loss)
-  model_all_gpu.compile(optimizer=Adam(lr=lr), loss=loss, loss_weights=lws)
-  model_mode_gpu.compile(optimizer=Adam(lr=lr), loss=loss)
-#  model.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  if mode == 0:
-    model_mode_gpu.fit(x=T2_2D, y=T1_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  if mode == 1:
-    model_mode_gpu.fit(x=T1_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 2:
-    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 5:
-    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 6:
-    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 7:
-    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 8:
-    model_mode_gpu.fit(x=T2_2D, y=T2_2D, batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 9:
-    model_mode_gpu.fit(x=T2_2D, y=[T1_2D,T2_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)  
-  if mode == 12:
-    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  if mode == 15:
-    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-  if mode == 19:
-    model_mode_gpu.fit(x=[T2_2D,T1_2D], y=np.zeros(T2_2D.shape[0]), batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
-
-
-  if mode == -1:
-    model_all_gpu.fit(x=[T2_2D,T1_2D], y=[T1_2D,T2_2D,T2_2D,T1_2D,T2_2D,T1_2D,T2_2D,T1_2D], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  model_all_gpu.fit(x=[x_train,y_train], y=[y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
    
   n = 10
-  step = 10000
-  t2 = T2_2D[0:n*step:step,:,:,:]
-  t1 = T1_2D[0:n*step:step,:,:,:]
+  step = 4000
+  t2 = x_test[0:n*step:step,:,:,:]
+  t1 = y_test[0:n*step:step,:,:,:]
   [a,b,c,d,e,f,g,h] = model_all_gpu.predict(x=[t2,t1], batch_size = batch_size)
  
   print('mse synthesis t1 : '+str(np.mean((t1 - a)**2)))
@@ -281,7 +264,31 @@ for epoch in range(epochs):
   print('mse identity t1 : '+str(np.mean((t1 - h)**2)))
  
   show_patches(patch_list=[t2,t1,a,b,c,d,e,f,g,h],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
- 
+  
+  dyn_t1 = np.max(t1) - np.min(t1)
+  dyn_t2 = np.max(t2) - np.min(t2)
+  psnr_a.append(10*np.log10( dyn_t1 / (np.mean((t1 - a)**2) )))
+  psnr_b.append(10*np.log10( dyn_t2 / (np.mean((t2 - b)**2) )))  
+  psnr_c.append(10*np.log10( dyn_t2 / (np.mean((t2 - c)**2) )))  
+  psnr_d.append(10*np.log10( dyn_t1 / (np.mean((t1 - d)**2) )))  
+  psnr_e.append(10*np.log10( dyn_t2 / (np.mean((t2 - e)**2) )))  
+  psnr_f.append(10*np.log10( dyn_t1 / (np.mean((t1 - f)**2) )))  
+  psnr_g.append(10*np.log10( dyn_t2 / (np.mean((t2 - g)**2) )))  
+  psnr_h.append(10*np.log10( dyn_t1 / (np.mean((t1 - h)**2) )))    
+  
+  plt.figure()
+  plt.plot(psnr_a)
+  plt.plot(psnr_b)
+  plt.plot(psnr_c)
+  plt.plot(psnr_d)
+  plt.plot(psnr_e)
+  plt.plot(psnr_f)
+  plt.plot(psnr_g)
+  plt.plot(psnr_h)
+  plt.legend(['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
+  plt.savefig(output_path+prefix+'_psnr.png',dpi=150, bbox_inches='tight')
+  plt.close()  
+  
   # if mode == 0:
   #   a = model_mode_gpu.predict(x=t2, batch_size = batch_size)
   #   show_patches(patch_list=[t2,t1,a],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches_checkmode.png')
@@ -339,21 +346,21 @@ for epoch in range(epochs):
 
 #%%
 
-#   #Check if the model is reversible
-# from keras.layers import Input
-# from keras.models import Model
+#Check if the model is reversible
+from keras.layers import Input
+from keras.models import Model
 
-# x = Input(shape=init_shape)	
-# fx= feature_model(x)
-# mx= mapping_reversible_T2_to_T1(fx)
-# my= mapping_reversible_T1_to_T2(mx)
-# tmpmodel = Model(inputs=x, outputs=[fx,my])
-# tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
-#                   loss=loss)
+x = Input(shape=init_shape)	
+fx= feature_model(x)
+mx= mapping_x2y(fx)
+my= mapping_y2x(mx)
+tmpmodel = Model(inputs=x, outputs=[fx,my])
+tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
+                 loss=loss)
 
-# [a,b] = tmpmodel.predict(x=T2_2D[0:n*step:step,:,:,:], batch_size = batch_size)
-# print('Error on reversible mapping : '+str(np.linalg.norm(a-b)))  
-# #%%  
+[a,b] = tmpmodel.predict(x=x_train[0:n*step:step,:,:,:], batch_size = batch_size)
+print('Error on reversible mapping : '+str(np.linalg.norm(a-b)))  
+#%%  
 
 # #Apply on a test image
 # T1image = nibabel.load(output_path+'IXI661-HH-2788-T1_N4.nii.gz')
