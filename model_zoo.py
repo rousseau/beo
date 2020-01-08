@@ -586,19 +586,23 @@ def build_forward_model(init_shape, block_model, n_layers, scaling=None):
   model = Model(inputs=input_block, outputs=output_block)
   return model
 
-def build_backward_model(init_shape, block_model, n_layers):
+def build_backward_model(init_shape, block_model, n_layers, order=3):
   input_block = Input(shape=init_shape)
 
   x = input_block
   for i in range(n_layers):
     #Third order approximation of v, the inverse of u.
     #v = -u + u² -u³ ...
-    x1 = block_model[i](x)
-    x2 = Multiply()([x1,x1])
-    x3 = Multiply()([x2,x1])    
-    x = Subtract()([x,x1])   
-    x = Add()([x,x2])
-    x = Subtract()([x,x3])   
+
+    u = block_model[i](x)
+    x = Subtract()([x,u])
+
+    if order>1: 
+      u2 = Multiply()([u,u])
+      x = Add()([x,u2])
+    if order>2:
+      u3 = Multiply()([u2,u])    
+      x = Subtract()([x,u3])   
        
   output_block = x
   
