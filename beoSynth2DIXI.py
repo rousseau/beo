@@ -17,10 +17,15 @@ from model_zoo import build_exp_model, fm_model, build_reversible_forward_model_
 from keras.optimizers import Adam
 from keras.utils import multi_gpu_model
 import matplotlib.pyplot as plt
-from dataset import get_ixi_2dpatches, get_hcp_2dpatches
+from dataset import get_ixi_2dpatches, get_hcp_2dpatches, get_hcp_4darrays
 from sklearn.model_selection import train_test_split
 import subprocess
 import socket
+
+#todo list
+#bien separer les donnees training and testing
+#visualiser les normes du velocity field (check approximation de l'inverse)
+
 
 #%%
  
@@ -47,6 +52,8 @@ def show_patches(patch_list,filename):
   plt.savefig(filename,dpi=150, bbox_inches='tight')
   plt.close()
 
+
+#%%
 print(K.image_data_format())
 from os.path import expanduser
 home = expanduser("~")
@@ -55,7 +62,8 @@ dataset = 'HCP' #HCP or IXI
 output_path = home+'/Sync/Experiments/'+dataset+'/'
 
 patch_size = 80 
-load_pickle_patches = 1
+load_pickle_patches = 0
+ratio_training = 0.75
 
 if load_pickle_patches == 0:
 
@@ -67,9 +75,24 @@ if load_pickle_patches == 0:
     joblib.dump(PD_2D,home+'/Exp/PD_2D.pkl', compress=True)
   if dataset == 'HCP':  
     n_patches = 50 #per slice 
-    (T1_2D,T2_2D) = get_hcp_2dpatches(patch_size = patch_size, n_patches = n_patches)
-    joblib.dump(T1_2D,home+'/Exp/HCP_T1_2D.pkl', compress=True)
-    joblib.dump(T2_2D,home+'/Exp/HCP_T2_2D.pkl', compress=True)
+    
+    (T1s,T2s,masks) = get_hcp_4darrays()
+    n_images = len(T1s)
+    print('Number of loaded images : '+str(n_images))
+    n_training_images = (int)(ratio_training*n_images)
+    print('Number of training images : '+str(n_training_images))
+    
+    T1_training = T1s[0:n_training_images]
+    T2_training = T2s[0:(int)(ratio_training*n_images)]
+    mask_training = masks[0:(int)(ratio_training*n_images)]    
+    
+    (T1_2D_training,T2_2D_training) = get_hcp_2dpatches(patch_size = patch_size, n_patches = n_patches, data=(T1s[0:n_training_images],T2s[0:n_training_images],masks[0:n_training_images]))    
+    joblib.dump(T1_2D_training,home+'/Exp/HCP_T1_2D_training.pkl', compress=True)
+    joblib.dump(T2_2D_training,home+'/Exp/HCP_T2_2D_training.pkl', compress=True)
+
+    (T1_2D_testing,T2_2D_testing) = get_hcp_2dpatches(patch_size = patch_size, n_patches = n_patches, data=(T1s[n_training_images:n_images],T2s[n_training_images:n_images],masks[n_training_images:n_images]))    
+    joblib.dump(T1_2D_testing,home+'/Exp/HCP_T1_2D_testing.pkl', compress=True)
+    joblib.dump(T2_2D_testing,home+'/Exp/HCP_T2_2D_testing.pkl', compress=True)
   
 else:  
   print('Loading gzip pickle files')  
@@ -78,20 +101,19 @@ else:
     T2_2D = joblib.load(home+'/Exp/T2_2D.pkl')
     PD_2D = joblib.load(home+'/Exp/PD_2D.pkl')
   if dataset == 'HCP':  
-    T1_2D = joblib.load(home+'/Exp/HCP_T1_2D.pkl')
-    T2_2D = joblib.load(home+'/Exp/HCP_T2_2D.pkl')
+    T1_2D_training = joblib.load(home+'/Exp/HCP_T1_2D_training.pkl')
+    T2_2D_training = joblib.load(home+'/Exp/HCP_T2_2D_training.pkl')
+    T1_2D_testing = joblib.load(home+'/Exp/HCP_T1_2D_testing.pkl')
+    T2_2D_testing = joblib.load(home+'/Exp/HCP_T2_2D_testing.pkl')
     
   print(T1_2D.shape)
 
 #%%
-ratio_training_testing = 0.75
-n_samples = T1_2D.shape[0]
+x_train = T2_2D_training
+x_test  = T2_2D_testing
 
-x_train = T2_2D[0:(int)(n_samples*ratio_training_testing)]
-x_test  = T2_2D[(int)(n_samples*ratio_training_testing):-1]
-
-y_train = T1_2D[0:(int)(n_samples*ratio_training_testing)]
-y_test  = T1_2D[(int)(n_samples*ratio_training_testing):-1]
+y_train = T1_2D_training
+y_test  = T1_2D_testing
 
 
 #plt.figure()  
@@ -111,16 +133,15 @@ y_test  = T1_2D[(int)(n_samples*ratio_training_testing):-1]
 n_channelsX = 1
 n_channelsY = 1
 n_filters = 32
-n_layers = 2 
-n_layers_residual = 2
+n_layers = 2          #number of layers for the numerical integration scheme
+n_layers_residual = 2 #number of layers for the parametrization of the velocity fields
 learning_rate = 0.00001
 loss = 'mae' 
-batch_size = 128  
+batch_size = 32  
 epochs = 5
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0
-reversible = 1 
 #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
 n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
  
@@ -138,7 +159,7 @@ lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
 inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
-reversible = 1
+reversible = 0
 encdec = 1
 n_levels = 1 #Check for 0 level, there is a bug...  
   
@@ -245,8 +266,13 @@ psnr_f = []
 psnr_g = []
 psnr_h = []
 
+loss_training = []
+loss_validation = []
+
 for epoch in range(epochs):
-  model_all_gpu.fit(x=[x_train,y_train], y=[y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+  hist = model_all_gpu.fit(x=[x_train,y_train], y=[y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train], batch_size=batch_size, epochs=1, verbose=1, shuffle=True)
+   
+  #transferer le hist vers les tableaux de loss
    
   n = 10
   step = 4000
