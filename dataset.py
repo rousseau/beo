@@ -241,9 +241,13 @@ def get_ixi_2dpatches(patch_size = 40, n_patches = 1000):
   
   return (T1_patches,T2_patches,PD_patches)
 
-def get_hcp_2dpatches(patch_size = 40, n_patches = 1000):
+def get_hcp_2dpatches(patch_size = 40, n_patches = 1000, data = None):
   
-  (T1s,T2s,masks) = get_hcp_4darrays()  
+  if data is None:
+    (T1s,T2s,masks) = get_hcp_4darrays()  
+  else:
+    (T1s,T2s,masks) = data
+    
   n_images = len(T1s)
   
   T1_patches = None
