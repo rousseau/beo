@@ -1,11 +1,11 @@
-import keras.backend as K
-from keras.models import Model
-from keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda, Dropout, Conv2DTranspose
-from keras.layers import Conv2D, UpSampling2D, GlobalAveragePooling2D
-from keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
-from keras.layers import concatenate, Flatten, Multiply
-from keras.regularizers import l1, l2
-from keras.constraints import max_norm
+import tensorflow.keras.backend as K
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda, Dropout, Conv2DTranspose
+from tensorflow.keras.layers import Conv2D, UpSampling2D, GlobalAveragePooling2D
+from tensorflow.keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
+from tensorflow.keras.layers import concatenate, Flatten, Multiply
+from tensorflow.keras.regularizers import l1, l2
+from tensorflow.keras.constraints import max_norm
 
 def conv_bn_relu(input,n_filters=128,strides=1):
   
@@ -178,11 +178,14 @@ def build_encoder_2d(init_shape, n_filters=32, n_levels = 3):
       
   inputs = Input(shape=init_shape)  
   features = inputs
- 
-  for n in range(n_levels):
+  
+  if n_levels > 0:
+    for n in range(n_levels):
+      features = conv_block_2d(features, n_filters, bn=False, do=0)
+      features = Conv2D(n_filters, 3, strides=2, padding='same')(features)
+  else:
     features = conv_block_2d(features, n_filters, bn=False, do=0)
-    features = Conv2D(n_filters, 3, strides=2, padding='same')(features)
-
+    
   features = Activation('tanh')(features)
   
   model = Model(inputs=inputs, outputs=features)
@@ -192,10 +195,13 @@ def build_decoder_2d(init_shape, n_filters=32, n_levels = 3):
   inputs = Input(shape=init_shape)
   recon = inputs
 
-  for n in range(n_levels):
-    recon = Conv2DTranspose(n_filters, 3, strides=2, activation='relu', padding='same')(recon)
+  if n_levels > 0:
+    for n in range(n_levels):
+      recon = Conv2DTranspose(n_filters, 3, strides=2, activation='relu', padding='same')(recon)
+      recon = conv_block_2d(recon, n_filters, bn=False, do=0)
+  else:
     recon = conv_block_2d(recon, n_filters, bn=False, do=0)
-
+    
   recon = Conv2D(filters=1, kernel_size=3, padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
                     strides=1)(recon)
@@ -218,13 +224,13 @@ def build_feature_model_2d(init_shape, n_filters=32, kernel_size=3):
   features = Conv2D((int)(n_filters/2), (kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
                     strides=1)(features)
-  features = BatchNormalization(axis=channel_axis)(features)
+  #features = BatchNormalization(axis=channel_axis)(features)
   features = Activation('relu')(features) 
   
   features = Conv2D(filters=n_filters, kernel_size=(3,3), padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
-                    strides=2)(features)
-  features = BatchNormalization(axis=channel_axis)(features)
+                    strides=1)(features)
+  #features = BatchNormalization(axis=channel_axis)(features)
   features = Activation('tanh')(features)
   
   model = Model(inputs=inputs, outputs=features)
@@ -275,17 +281,18 @@ def build_recon_model_2d(init_shape, n_channelsY=1, n_filters=32, kernel_size=3)
   
   input_recon = Input(shape=init_shape)
 
-  recon=(UpSampling2D((2, 2)))(input_recon)  
+  #recon=(UpSampling2D((2, 2)))(input_recon)  
+  recon = input_recon
   recon = Conv2D(filters=n_filters, kernel_size=(3, 3), padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
                     strides=1)(recon)
-  recon = BatchNormalization(axis=channel_axis)(recon)
+  #recon = BatchNormalization(axis=channel_axis)(recon)
   recon = Activation('relu')(recon)
 
   recon = Conv2D(filters=(int)(n_filters/2), kernel_size=(3, 3), padding='same', kernel_initializer='glorot_uniform',
                     use_bias=True,
                     strides=1)(recon)
-  recon = BatchNormalization(axis=channel_axis)(recon)
+  #recon = BatchNormalization(axis=channel_axis)(recon)
   recon = Activation('relu')(recon)
   
   recon = Conv2D(filters=n_channelsY, kernel_size=(kernel_size, kernel_size), padding='same', kernel_initializer='glorot_uniform',
@@ -353,7 +360,7 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   return model
 
 
-def build_block_model_2d(init_shape, n_filters=32, n_layers=2):
+def build_block_model_2d(init_shape, n_filters=32, n_layers=2, block_type = 'res_in_res'):
   if K.image_data_format() == 'channels_first':
     channel_axis = 1
   else:
@@ -362,7 +369,6 @@ def build_block_model_2d(init_shape, n_filters=32, n_layers=2):
   input_block = Input(shape=init_shape)
   x = input_block
   
-  block_type = 'res_in_res'
   ratio = 1 #change inside the block the number of filters
 
   if block_type == 'resnet':    
@@ -402,8 +408,31 @@ def build_block_model_2d(init_shape, n_filters=32, n_layers=2):
                     #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
       #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
       x = Add()([y,x])  
+
+  if block_type =='bottleneck':
+    y = Conv2D((int)(n_filters*ratio), (1, 1), padding='same', kernel_initializer='glorot_uniform',
+                      use_bias=False,
+                      strides=1,
+                      activation='relu')(x)#,
+                      #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(x)
+  
+    y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1,
+                    activation='relu')(y)#,
+                    #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
+
+    y = Conv2D(n_filters, (1, 1), padding='same', kernel_initializer='glorot_uniform',
+                    use_bias=False,
+                    strides=1,
+                    activation='relu')(y)#,
+
+      #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
+    x = Add()([y,x])  
       
-      
+  
+  x = Activation('tanh')(x) #required for approximation of the inverse
+    
   output_block = x  
   model = Model(inputs=input_block, outputs=output_block)
   return model
@@ -851,7 +880,10 @@ def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, rec
 #  errsum = Add()([errx2y, erry2x, errx2x, erry2y])
 
 #  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,idx2x,idy2y])
-  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y])
+  model = Model(inputs=[ix,iy], 
+                outputs=[rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y],
+                name = 'model_all')
+  
 #  model = Model(inputs=[ix,iy], outputs=errsum)
   return model
 

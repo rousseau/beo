@@ -2,10 +2,10 @@ import glob
 import nibabel
 import SimpleITK as sitk
 import numpy as np
-import keras.backend as K
+import tensorflow.keras.backend as K
 import os
 import multiprocessing
-from keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
 
 def get_list_of_files(data_path, key, verbose=0):
   directories = glob.glob(data_path, recursive=True)
