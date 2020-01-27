@@ -1,3 +1,4 @@
+import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda, Dropout, Conv2DTranspose
@@ -360,7 +361,13 @@ def build_block_model(init_shape, n_filters=32, n_layers=2):
   return model
 
 
-def build_block_model_2d(init_shape, n_filters=32, n_layers=2, block_type = 'res_in_res'):
+def build_block_model_2d(init_shape,
+                         n_filters=32, 
+                         n_layers=2, 
+                         block_type = 'res_in_res',
+                         kernel_initializer = 'glorot_uniform',
+                         activity_regularizer = 0):
+
   if K.image_data_format() == 'channels_first':
     channel_axis = 1
   else:
@@ -373,59 +380,68 @@ def build_block_model_2d(init_shape, n_filters=32, n_layers=2, block_type = 'res
 
   if block_type == 'resnet':    
     for i in range(n_layers-1):
-      x = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer='glorot_uniform',
+      x = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer=kernel_initializer,
                       use_bias=False,
-                      strides=1)(x)
+                      strides=1,
+                      activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
       x = Activation('relu')(x)
   
-    x = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+    x = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer=kernel_initializer,
                     use_bias=False,
-                    strides=1)(x)
+                    strides=1,
+                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
     #x = Activation('tanh')(x)  
   
 
   if block_type == 'dense':
     for i in range(n_layers):
       #conv
-      y = Conv2D((int)(n_filters*ratio), (3, 3), activation='relu', padding='same', kernel_initializer='glorot_uniform', use_bias=False)(x)
+      y = Conv2D((int)(n_filters*ratio), (3, 3), activation='relu', padding='same', kernel_initializer=kernel_initializer, use_bias=False,
+                      activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
       x = concatenate([x,y], axis=channel_axis)
 
       #bottleneck to keep the same feature dimension
-      x = Conv2D(n_filters, (1, 1), activation='relu', padding='same', kernel_initializer='glorot_uniform', use_bias=False)(x)
+      x = Conv2D(n_filters, (1, 1), activation='relu', padding='same', kernel_initializer=kernel_initializer, use_bias=False,
+                      activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
     
 
   if block_type =='res_in_res':
     for i in range(n_layers):
-      y = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer='glorot_uniform',
+      y = Conv2D((int)(n_filters*ratio), (3, 3), padding='same', kernel_initializer=kernel_initializer,
                       use_bias=False,
-                      strides=1)(x)#,
+                      strides=1,
+                      activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)#,
                       #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(x)
       y = Activation('relu')(y)
   
-      y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+      y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer=kernel_initializer,
                     use_bias=False,
-                    strides=1)(y)#,
+                    strides=1,
+                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(y)#,
                     #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
       #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
       x = Add()([y,x])  
 
   if block_type =='bottleneck':
-    y = Conv2D((int)(n_filters*ratio), (1, 1), padding='same', kernel_initializer='glorot_uniform',
+    y = Conv2D((int)(n_filters*ratio), (1, 1), padding='same', kernel_initializer=kernel_initializer,
                       use_bias=False,
                       strides=1,
-                      activation='relu')(x)#,
+                      activation='relu',
+                      activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)#,
                       #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(x)
   
-    y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer='glorot_uniform',
+    y = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer=kernel_initializer,
                     use_bias=False,
                     strides=1,
-                    activation='relu')(y)#,
+                    activation='relu',
+                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(y)#,
                     #kernel_constraint = max_norm(max_value=1, axis=[0,1,2]))(y)
 
-    y = Conv2D(n_filters, (1, 1), padding='same', kernel_initializer='glorot_uniform',
+    y = Conv2D(n_filters, (1, 1), padding='same', kernel_initializer=kernel_initializer,
                     use_bias=False,
                     strides=1,
-                    activation='relu')(y)#,
+                    activation='relu',
+                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(y)#,
 
       #y = Activation('tanh')(y)   #Limit the max/min fo the added residual 
     x = Add()([y,x])  

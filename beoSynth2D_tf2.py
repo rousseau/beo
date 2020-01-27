@@ -142,7 +142,7 @@ y_test  = T1_2D_testing
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 128
+n_filters = 32
 n_layers = 5           #number of layers for the numerical integration scheme (ResNet)
 n_layers_residual = 1  #number of layers for the parametrization of the velocity fields
 block_type = 'bottleneck'
@@ -152,14 +152,16 @@ epochs = 100
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0  
+ki = 'glorot_uniform' #kernel initializer
+ar = 1e-6                #activity regularization (L2)
 #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
 n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
 optim = 'adam'
-lr_decay= 'decay'
+lr_decay= 'none'
 
-learning_rate = 0.001   
+learning_rate = 0.0001   
 if optim == 'sgd':
-  learning_rate = 0.01 #changer le lr ? et l'adapter en fonction des epochs?
+  learning_rate = 0.001 #changer le lr ? et l'adapter en fonction des epochs?
  
 lw1 = 1 #loss weight direct mapping
 lw2 = 1 #loss weight inverse mapping
@@ -176,6 +178,7 @@ inverse_consistency = 0
 cycle_consistency = 0
 identity_consistency = 0
 reversible = 1 
+backward_order = 3
 encdec = 1
 n_levels = 1 #Check for 0 level, there is a bug...  
   
@@ -191,11 +194,16 @@ if identity_consistency == 1:
   prefix += '_idc'  
 if reversible == 1:
   prefix += '_rev'    
+else:
+  prefix += '_order'+str(backward_order)  
 if shared_blocks == 1:
   prefix += '_shared'  
+prefix+= '_'+ki
+prefix+= '_ar'+str(ar)  
 prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(x_train.shape[0])
 prefix+= '_bs'+str(batch_size)
 prefix+= '_lr'+str(learning_rate)
+prefix+= '_nf'+str(n_filters)
 prefix+= '_nl'+str(n_layers)
 prefix+= '_nlr'+str(n_layers_residual)
 prefix+= '_'+block_type
@@ -204,6 +212,8 @@ prefix+= '_encdec'+str(encdec)
 prefix+= '_'+optim
 prefix+= '_'+lr_decay
 prefix+= '_'
+
+print(prefix)
 
 if K.image_data_format() == 'channels_first':
   init_shape = (n_channelsX, None, None)
@@ -237,11 +247,11 @@ with strategy.scope():
     block_g_x2y = []
     if shared_blocks == 0:
       for l in range(n_layers):
-        block_f_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
-        block_g_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual))
+        block_f_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar))
+        block_g_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar))
     else:
-      bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
-      bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual)
+      bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
+      bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
       for l in range(n_layers):
         block_f_x2y.append(bf)
         block_g_x2y.append(bg)
@@ -253,14 +263,14 @@ with strategy.scope():
     block_x2y = []
     if shared_blocks == 0:
       for l in range(n_layers):
-        block_x2y.append( build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual) )
+        block_x2y.append( build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar) )
     else:
-      b = build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual)
+      b = build_block_model_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
       for l in range(n_layers):
         block_x2y.append(b)
   
     mapping_x2y = build_forward_model(init_shape=feature_shape, block_model=block_x2y, n_layers=n_layers)
-    mapping_y2x = build_backward_model(init_shape=feature_shape, block_model=block_x2y, n_layers=n_layers)
+    mapping_y2x = build_backward_model(init_shape=feature_shape, block_model=block_x2y, n_layers=n_layers, order=backward_order)
     
   
   model_all_gpu = build_4_model(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
@@ -300,65 +310,6 @@ print('Number of parameters of mapping_x2y model : '+str(mapping_x2y.count_param
 print('Number of parameters of recon_model model : '+str(recon_model.count_params()))
 print('Number of parameters of model_all_gpu model : '+str(model_all_gpu.count_params()))
 
-#%%
-# import ktrain
-
-# from lr_finder import LRFinder
-
-# lr_finder = LRFinder()
-
-# with strategy.scope():
-
-#   x = Input(shape=init_shape)	
-#   fx= feature_model(x)
-#   mx= mapping_x2y(fx)
-#   rx= recon_model(mx)
-#   tmpmodel = Model(inputs=x, outputs=rx)
-#   tmpmodel.compile(optimizer='adam', loss='mse')
- 
-#   _ = tmpmodel.fit(x=x_train,y=y_train,epochs=5,callbacks=[lr_finder])  
-  
-# lr_finder.plot()  
-  
-#   learner = ktrain.get_learner(tmpmodel, 
-#                                train_data=(x_train,y_train),
-#                                val_data=(x_test,y_test))
-  
-#   learner.lr_find()
-#   learner.lr_plot()
-  
-#   #learner.fit_onecycle(lr=0.005, epochs=2)
-
-#%%
-# from lr_one_cycle import OneCycleScheduler
-
-# epochs = 5
-# lr = 1e-3
-# steps = np.ceil(x_train.shape[0] / batch_size) * epochs
-# lr_schedule = OneCycleScheduler(lr,steps)
-
-# with strategy.scope():
-
-#   x = Input(shape=init_shape)	
-#   fx= feature_model(x)
-#   mx= mapping_x2y(fx)
-#   rx= recon_model(mx)
-#   tmpmodel = Model(inputs=x, outputs=rx)
-#   tmpmodel.compile(optimizer='adam', loss='mse')
- 
-#   _ = tmpmodel.fit(x=x_train,y=y_train,epochs=5,callbacks=[lr_schedule])  
-
-
- 
-#%%
-# with strategy.scope():
-#   learner = ktrain.get_learner(model_all_gpu, 
-#                                train_data=([x_train,y_train],[y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train]),
-#                                val_data=([x_test,y_test],[y_test,x_test,x_test,y_test,x_test,y_test,x_test,y_test]))
-  
-#   learner.lr_find()
-#   learner.lr_plot()
-
   
 #%%  
 
@@ -367,7 +318,7 @@ keras_loss = None
 losses = None
 psnrs  = None
 inverr = []
-callbacks = None
+callbacks = []
 # if lr_decay == 'cosine':
 #   lr_decayed = tf.keras.experimental.CosineDecay(initial_learning_rate = learning_rate, decay_steps = 1000)
 #   callbacks = [lr_decayed]
@@ -376,136 +327,151 @@ if lr_decay == 'decay':
     return learning_rate * (0.9 ** epoch)
   
   #lr_decayed = callbacks.LearningRateScheduler(schedule=lambda epoch: learning_rate * (0.9 ** epoch))
-  callbacks = [tf.keras.callbacks.LearningRateScheduler(lr_decayed)]
+  callbacks.append(tf.keras.callbacks.LearningRateScheduler(lr_decayed))
     
-  
-for epoch in range(epochs):
-  print('Learning rate : '+str(learning_rate))
-  
-  hist = model_all_gpu.fit(x=[x_train,y_train], 
-                           y=[y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train], 
-                           batch_size=batch_size, 
-                           epochs=1, 
-                           verbose=1, 
-                           shuffle=True,
-                           validation_data=([x_test,y_test],[y_test,x_test,x_test,y_test,x_test,y_test,x_test,y_test]),
-                           callbacks=callbacks)
+dyn_t1 = np.max(y_train) - np.min(y_train)
+dyn_t2 = np.max(x_train) - np.min(x_train)
+print('T1 dynamic :'+str(dyn_t1))
+print('T2 dynamic :'+str(dyn_t2))
 
-  # with strategy.scope():
-  #   learning_rate *= 0.9
-  #   model_all_gpu.compile(optimizer=Adam(lr=learning_rate), loss=loss, loss_weights=lws)  
+n = 10
+step = 4000
+t2 = x_test[0:n*step:step,:,:,:]
+t1 = y_test[0:n*step:step,:,:,:]
 
-  n = 10
-  step = 4000
-  t2 = x_test[0:n*step:step,:,:,:]
-  t1 = y_test[0:n*step:step,:,:,:]
-  [a,b,c,d,e,f,g,h] = model_all_gpu.predict(x=[t2,t1], batch_size = batch_size)
- 
-  res = np.zeros((1,8))
-  res[0,0] = np.mean((t1 - a)**2)
-  res[0,1] = np.mean((t2 - b)**2)
-  res[0,2] = np.mean((t2 - c)**2)
-  res[0,3] = np.mean((t1 - d)**2)
-  res[0,4] = np.mean((t2 - e)**2)
-  res[0,5] = np.mean((t1 - f)**2)
-  res[0,6] = np.mean((t2 - g)**2)
-  res[0,7] = np.mean((t1 - h)**2)
 
-  if losses is None:
-    losses = np.copy(res)
-  else:
-    losses = np.concatenate((losses,res),axis=0)  
-
-  plt.figure()
-  plt.plot(losses)
-  plt.xlabel('epochs')
-  plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
-  plt.savefig(output_path+prefix+'_losses.png',dpi=150, bbox_inches='tight')
-  plt.close()
-     
-  show_patches(patch_list=[t2,t1,a,b,c,d,e,f,g,h],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
-  
-  dyn_t1 = np.max(t1) - np.min(t1)
-  dyn_t2 = np.max(t2) - np.min(t2)
-  
-  psnr = np.zeros((1,8))
-  psnr[0,0]= 10*np.log10( dyn_t1 / (np.mean((t1 - a)**2) ))
-  psnr[0,1]= 10*np.log10( dyn_t2 / (np.mean((t2 - b)**2) ))  
-  psnr[0,2]= 10*np.log10( dyn_t2 / (np.mean((t2 - c)**2) ))  
-  psnr[0,3]= 10*np.log10( dyn_t1 / (np.mean((t1 - d)**2) ))  
-  psnr[0,4]= 10*np.log10( dyn_t2 / (np.mean((t2 - e)**2) )) 
-  psnr[0,5]= 10*np.log10( dyn_t1 / (np.mean((t1 - f)**2) ))  
-  psnr[0,6]= 10*np.log10( dyn_t2 / (np.mean((t2 - g)**2) ))  
-  psnr[0,7]= 10*np.log10( dyn_t1 / (np.mean((t1 - h)**2) ))    
-  
-  if psnrs is None:
-    psnrs = np.copy(psnr)
-  else:
-    psnrs = np.concatenate((psnrs,psnr),axis=0)  
-      
-  plt.figure()
-  plt.plot(psnrs)
-  plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
-  plt.savefig(output_path+prefix+'_psnr.png',dpi=150, bbox_inches='tight')
-  plt.close()  
-  
-  klist = list(hist.history.keys())
-  
-  val_loss = np.zeros((1,8))
-  for i in range(8):
-    val_loss[0,i] = hist.history[klist[10+i]][0]
-  if keras_val is None:
-    keras_val = np.copy(val_loss)
-  else:
-    keras_val = np.concatenate((keras_val,val_loss),axis=0)  
-  plt.figure()
-  plt.plot(keras_val)
-  plt.xlabel('epochs')
-  plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
-  plt.savefig(output_path+prefix+'_keras_val.png',dpi=150, bbox_inches='tight')
-  plt.close()
-
+class SaveFigureCallback(tf.keras.callbacks.Callback):
+  def on_train_begin(self, logs={}):
+    self.train_loss = None
+    self.val_loss = None
+    self.train_psnr = None
+    self.val_psnr = None
+    self.inverr = []
     
-  ker_loss = np.zeros((1,8))
-  for i in range(8):
-    ker_loss[0,i] = hist.history[klist[1+i]][0]
-  if keras_loss is None:
-    keras_loss = np.copy(ker_loss)
-  else:
-    keras_loss = np.concatenate((keras_loss,ker_loss),axis=0)      
-  plt.figure()
-  plt.plot(keras_loss)
-  plt.xlabel('epochs')
-  plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
-  plt.savefig(output_path+prefix+'_keras_loss.png',dpi=150, bbox_inches='tight')
-  plt.close()
- 
+  def on_epoch_end(self,epoch,logs):
+    
+    klist = list(logs.keys())
+    
+    print('\n Saving figures...')
+    ker_loss = np.zeros((1,8))
+    for i in range(8):
+      ker_loss[0,i] = logs[klist[1+i]]
+    if self.train_loss is None:
+      self.train_loss = np.copy(ker_loss)
+    else:
+      self.train_loss = np.concatenate((self.train_loss,ker_loss),axis=0)      
+    plt.figure()
+    plt.plot(self.train_loss)
+    plt.xlabel('epochs')
+    plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
+    plt.savefig(output_path+prefix+'_keras_loss.png',dpi=150, bbox_inches='tight')
+    plt.close()    
+    
+    val_loss = np.zeros((1,8))
+    for i in range(8):
+      val_loss[0,i] = logs[klist[10+i]]
+    if self.val_loss is None:
+      self.val_loss = np.copy(val_loss)
+    else:
+      self.val_loss = np.concatenate((self.val_loss,val_loss),axis=0)  
+    plt.figure()
+    plt.plot(self.val_loss)
+    plt.xlabel('epochs')
+    plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
+    plt.savefig(output_path+prefix+'_keras_val.png',dpi=150, bbox_inches='tight')
+    plt.close()
 
-#%%
+    psnr = np.zeros((1,8))
+    psnr[0,0]= 10*np.log10( dyn_t1 / logs[klist[1]] )
+    psnr[0,1]= 10*np.log10( dyn_t2 / logs[klist[2]] )  
+    psnr[0,2]= 10*np.log10( dyn_t2 / logs[klist[3]] )  
+    psnr[0,3]= 10*np.log10( dyn_t1 / logs[klist[4]] )  
+    psnr[0,4]= 10*np.log10( dyn_t2 / logs[klist[5]] ) 
+    psnr[0,5]= 10*np.log10( dyn_t1 / logs[klist[6]] )  
+    psnr[0,6]= 10*np.log10( dyn_t2 / logs[klist[7]] )  
+    psnr[0,7]= 10*np.log10( dyn_t1 / logs[klist[8]] )
+    if self.train_psnr is None:
+      self.train_psnr = np.copy(psnr)
+    else:
+      self.train_psnr = np.concatenate((self.train_psnr,psnr),axis=0)      
+    plt.figure()
+    plt.plot(self.train_psnr)
+    plt.xlabel('epochs')
+    plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
+    plt.savefig(output_path+prefix+'_train_psnr.png',dpi=150, bbox_inches='tight')
+    plt.close()    
 
-  #Checking if the model is reversible
-  x = Input(shape=init_shape)	
-  fx= feature_model(x)
-  mx= mapping_x2y(fx)
-  my= mapping_y2x(mx)
-  tmpmodel = Model(inputs=x, outputs=[fx,my])
-  tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
-                  loss=loss)
+    psnr = np.zeros((1,8))
+    psnr[0,0]= 10*np.log10( dyn_t1 / logs[klist[10]] )
+    psnr[0,1]= 10*np.log10( dyn_t2 / logs[klist[11]] )  
+    psnr[0,2]= 10*np.log10( dyn_t2 / logs[klist[12]] )  
+    psnr[0,3]= 10*np.log10( dyn_t1 / logs[klist[13]] )  
+    psnr[0,4]= 10*np.log10( dyn_t2 / logs[klist[14]] ) 
+    psnr[0,5]= 10*np.log10( dyn_t1 / logs[klist[15]] )  
+    psnr[0,6]= 10*np.log10( dyn_t2 / logs[klist[16]] )  
+    psnr[0,7]= 10*np.log10( dyn_t1 / logs[klist[17]] )
+    if self.val_psnr is None:
+      self.val_psnr = np.copy(psnr)
+    else:
+      self.val_psnr = np.concatenate((self.val_psnr,psnr),axis=0)      
+    plt.figure()
+    plt.plot(self.val_psnr)
+    plt.xlabel('epochs')
+    plt.legend(['$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'])
+    plt.savefig(output_path+prefix+'_val_psnr.png',dpi=150, bbox_inches='tight')
+    plt.close()    
+    
+    print('Checking if the model is reversible')
+    ix = Input(shape=init_shape)	
+    fx= feature_model(ix)
+    mx= mapping_x2y(fx)
+    my= mapping_y2x(mx)
+    tmpmodel = Model(inputs=ix, outputs=[fx,my])
+    tmpmodel.compile(optimizer=Adam(lr=learning_rate), 
+                    loss=loss)
+  
+    [a,b] = tmpmodel.predict(x=t2, batch_size = batch_size)
+    res = np.mean((a - b)**2)
+    print('Error on reversible mapping in feature space: '+str(res))
+    self.inverr.append(res)
+    plt.figure()
+    plt.plot(self.inverr)
+    plt.legend(['$\| f(x) - m^{-1} \circ m \circ f(x) \|^2$'])
+    plt.savefig(output_path+prefix+'_inverr.png',dpi=150, bbox_inches='tight')
+    plt.close()   
 
-  [a,b] = tmpmodel.predict(x=t2, batch_size = batch_size)
-  res = np.mean((a - b)**2)
-  print('Error on reversible mapping in feature space: '+str(res))
-  inverr.append(res)
-  plt.figure()
-  plt.plot(inverr)
-  plt.legend(['$\| f(x) - m^{-1} \circ m \circ f(x) \|^2$'])
-  plt.savefig(output_path+prefix+'_inverr.png',dpi=150, bbox_inches='tight')
-  plt.close()    
+    print('Saving predicted patches') 
+    [a,b,c,d,e,f,g,h] = model_all_gpu.predict(x=[t2,t1], batch_size = batch_size)
+    show_patches(patch_list=[t2,t1,a,b,c,d,e,f,g,h],filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
+
+
+
+callbacks.append(SaveFigureCallback())
+
+x = [x_train,y_train]
+y = [y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train]
+x_val = [x_test,y_test]
+y_val = [y_test,x_test,x_test,y_test,x_test,y_test,x_test,y_test]
+
+
+hist = model_all_gpu.fit(x=x, 
+                          y=y, 
+                          batch_size=batch_size, 
+                          epochs=epochs, 
+                          verbose=1, 
+                          shuffle=True,
+                          validation_data=(x_val,y_val),
+                          callbacks=callbacks)
+
 
 #Save all data
-joblib.dump((keras_loss,keras_val,inverr,losses,psnrs),output_path+prefix+'_history.pkl', compress=True)
+#Pickle -> bug ?!! (we save hist.history instead of hist)
+joblib.dump(hist.history,output_path+prefix+'_kerashistory.pkl', compress=True)
+joblib.dump((keras_loss,keras_val,inverr,losses,psnrs),output_path+prefix+'_myhistory.pkl', compress=True)
 model_all_gpu.save(output_path+prefix+'_model.h5')
-joblib.dump((feature_model,mapping_x2y,mapping_y2x,recon_model),output_path+prefix+'_models.pkl', compress=True)
+#joblib.dump((feature_model,mapping_x2y,mapping_y2x,recon_model),output_path+prefix+'_models.pkl', compress=True)
+
+
 
 #%%  
 
