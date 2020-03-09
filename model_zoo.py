@@ -8,6 +8,40 @@ from tensorflow.keras.layers import concatenate, Flatten, Multiply
 from tensorflow.keras.regularizers import l1, l2
 from tensorflow.keras.constraints import max_norm
 
+
+def conv_bn_relu_nd(input,
+                    dimension = 2,
+                    kernel_size = 3,
+                    n_filters=128,
+                    strides=1,
+                    kernel_initializer = 'glorot_uniform'):
+  
+  weight_decay = 0.0005
+
+  if dimension == 2:
+    x = Conv2D(n_filters, 
+               (kernel_size, kernel_size), 
+               padding='same',
+               kernel_initializer=kernel_initializer,
+               kernel_regularizer=l2(weight_decay),
+               use_bias=False,
+               strides=strides)(input)
+
+  elif dimension == 3:
+    x = Conv3D(n_filters, 
+               (kernel_size, kernel_size, kernel_size), 
+               padding='same',
+               kernel_initializer=kernel_initializer,
+               kernel_regularizer=l2(weight_decay),
+               use_bias=False,
+               strides=strides)(input)
+
+  channel_axis = 1 if K.image_data_format() == "channels_first" else -1
+  x = BatchNormalization(axis=channel_axis, momentum=0.1, epsilon=1e-5, gamma_initializer='uniform')(x)
+  x = Activation('relu')(x)
+  return x
+
+
 def conv_bn_relu(input,n_filters=128,strides=1):
   
   weight_decay = 0.0005
@@ -173,8 +207,7 @@ def conv_block_2d(input,n_filters,bn, do=0):
   n = Conv2D(n_filters, 3, activation='relu', padding='same')(n)
   n = BatchNormalization()(n) if bn else n
   return n
-
-
+  
 def build_encoder_2d(init_shape, n_filters=32, n_levels = 3):
       
   inputs = Input(shape=init_shape)  
@@ -814,7 +847,7 @@ def build_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, recon
     return Model(inputs=[ix,iy], outputs=errsum)
 
 
-def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
+def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model, zero_output=False):
   ix = Input(shape=init_shape)	
   iy = Input(shape=init_shape)	
   
@@ -848,55 +881,77 @@ def build_4_model(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, rec
   idy2y = reconstruction_model(fy)
   idx2x = reconstruction_model(fx)  
 
-  #Errors  
-  # errx2y = Subtract()([rx2y,iy])
-  # errx2y = Lambda(lambda x:K.pow(x,2))(errx2y)
-  # errx2y = GlobalAveragePooling3D()(errx2y)
-  # errx2y = Reshape((1,))(errx2y)
+  if zero_output is True:
 
-  # erry2x = Subtract()([ry2x,ix])
-  # erry2x = Lambda(lambda x:K.pow(x,2))(erry2x)
-  # erry2x = GlobalAveragePooling3D()(erry2x)
-  # erry2x = Reshape((1,))(erry2x)
-  
-  # errx2x = Subtract()([rx2x,ix])
-  # errx2x = Lambda(lambda x:K.pow(x,2))(errx2x)
-  # errx2x = GlobalAveragePooling3D()(errx2x)
-  # errx2x = Reshape((1,))(errx2x)
-  
-  # erry2y = Subtract()([ry2y,iy])
-  # erry2y = Lambda(lambda x:K.pow(x,2))(erry2y)
-  # erry2y = GlobalAveragePooling3D()(erry2y)
-  # erry2y = Reshape((1,))(erry2y)
-  
-  # erridx = Subtract()([idx2x,ix])
-  # erridx = Lambda(lambda x:K.abs(x))(erridx)
-  # erridx = GlobalAveragePooling3D()(erridx)
-  # erridx = Reshape((1,))(erridx)
+    #Errors  
+    #forward
+    errx2y = Subtract()([rx2y,iy])
+    errx2y = Lambda(lambda x:K.pow(x,2))(errx2y)
+    errx2y = GlobalAveragePooling3D()(errx2y)
+    errx2y = Reshape((1,))(errx2y)
 
-  # erridy = Subtract()([idy2y,iy])
-  # erridy = Lambda(lambda x:K.abs(x))(erridy)
-  # erridy = GlobalAveragePooling3D()(erridy)
-  # erridy = Reshape((1,))(erridy)  
-  
-  # errmfx = Subtract()([fy,mx2y])
-  # errmfx = Lambda(lambda x:K.abs(x))(errmfx)
-  # errmfx = GlobalAveragePooling3D()(errmfx)
-  # errmfx = Lambda(lambda x: K.mean(x, axis=1))(errmfx) 
-  # errmfx = Reshape((1,))(errmfx)
-  
-  # errmfy = Subtract()([fx,my2x])
-  # errmfy = Lambda(lambda x:K.abs(x))(errmfy)
-  # errmfy = GlobalAveragePooling3D()(errmfy)
-  # errmfy = Lambda(lambda x: K.mean(x, axis=1))(errmfy)  
-  # errmfy = Reshape((1,))(errmfy)
+    #backward
+    erry2x = Subtract()([ry2x,ix])
+    erry2x = Lambda(lambda x:K.pow(x,2))(erry2x)
+    erry2x = GlobalAveragePooling3D()(erry2x)
+    erry2x = Reshape((1,))(erry2x)
+    
+    #identity mapping
+    errx2x = Subtract()([rx2x,ix])
+    errx2x = Lambda(lambda x:K.pow(x,2))(errx2x)
+    errx2x = GlobalAveragePooling3D()(errx2x)
+    errx2x = Reshape((1,))(errx2x)
+    
+    erry2y = Subtract()([ry2y,iy])
+    erry2y = Lambda(lambda x:K.pow(x,2))(erry2y)
+    erry2y = GlobalAveragePooling3D()(erry2y)
+    erry2y = Reshape((1,))(erry2y)
+    
+    #autoencoder
+    erridx = Subtract()([idx2x,ix])
+    erridx = Lambda(lambda x:K.abs(x))(erridx)
+    erridx = GlobalAveragePooling3D()(erridx)
+    erridx = Reshape((1,))(erridx)
+
+    erridy = Subtract()([idy2y,iy])
+    erridy = Lambda(lambda x:K.abs(x))(erridy)
+    erridy = GlobalAveragePooling3D()(erridy)
+    erridy = Reshape((1,))(erridy)  
+    
+    #cycle consistency
+    errx2y2x = Subtract()([rx2y2x,ix])
+    errx2y2x = Lambda(lambda x:K.abs(x))(errx2y2x)
+    errx2y2x = GlobalAveragePooling3D()(errx2y2x)
+    errx2y2x = Reshape((1,))(errx2y2x)
+
+    erry2x2y = Subtract()([ry2x2y,iy])
+    erry2x2y = Lambda(lambda x:K.abs(x))(erry2x2y)
+    erry2x2y = GlobalAveragePooling3D()(erry2x2y)
+    erry2x2y = Reshape((1,))(erry2x2y)  
+
+    # errmfx = Subtract()([fy,mx2y])
+    # errmfx = Lambda(lambda x:K.abs(x))(errmfx)
+    # errmfx = GlobalAveragePooling3D()(errmfx)
+    # errmfx = Lambda(lambda x: K.mean(x, axis=1))(errmfx) 
+    # errmfx = Reshape((1,))(errmfx)
+    
+    # errmfy = Subtract()([fx,my2x])
+    # errmfy = Lambda(lambda x:K.abs(x))(errmfy)
+    # errmfy = GlobalAveragePooling3D()(errmfy)
+    # errmfy = Lambda(lambda x: K.mean(x, axis=1))(errmfy)  
+    # errmfy = Reshape((1,))(errmfy)
   
   
 #  errsum = Add()([errx2y, erry2x, errx2x, erry2y, erridx, erridy, errmfx, errmfy])
 #  errsum = Add()([errx2y, erry2x, errx2x, erry2y])
 
 #  model = Model(inputs=[ix,iy], outputs=[rx2y,ry2x,rx2x,ry2y,idx2x,idy2y])
-  model = Model(inputs=[ix,iy], 
+  if zero_output is True:
+    model = Model(inputs=[ix,iy], 
+                outputs=[errx2y, erry2x, errx2x, erry2y, errx2y2x, erry2x2y, erridx, erridy],
+                name = 'model_all')
+  else:  
+    model = Model(inputs=[ix,iy], 
                 outputs=[rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y],
                 name = 'model_all')
   

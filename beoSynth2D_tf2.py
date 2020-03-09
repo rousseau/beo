@@ -11,7 +11,7 @@ import joblib
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.backend as K
-from model_zoo import build_feature_model_2d, build_recon_model_2d, build_block_model_2d
+from model_zoo import build_feature_model_2d, build_recon_model_2d, build_block_model_2d, conv_bn_relu_nd
 from model_zoo import build_encoder_2d, build_decoder_2d
 from model_zoo import build_forward_model, build_backward_model, build_one_model, mapping_composition, build_model
 from model_zoo import build_exp_model, fm_model, build_reversible_forward_model_2d, build_reversible_backward_model_2d, build_4_model
@@ -142,18 +142,18 @@ y_test  = T1_2D_testing
 
 n_channelsX = 1
 n_channelsY = 1
-n_filters = 32
-n_layers = 5           #number of layers for the numerical integration scheme (ResNet)
+n_filters = 128
+n_layers = 10          #number of layers for the numerical integration scheme (ResNet)
 n_layers_residual = 1  #number of layers for the parametrization of the velocity fields
-block_type = 'bottleneck'
-loss = 'mae' 
-batch_size = 32  
+block_type = 'bottleneck' #what choice to do ?
+loss = 'mse' 
+batch_size = 8  
 epochs = 100
 use_optim = 0
 kernel_size = 5
 shared_blocks = 0  
-ki = 'glorot_uniform' #kernel initializer
-ar = 1e-6                #activity regularization (L2)
+ki = 'glorot_normal' #kernel initializer
+ar = 0#1e-6                #activity regularization (L2)
 #Get automatically the number of GPUs : https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
 n_gpu = str(subprocess.check_output(["nvidia-smi", "-L"])).count('UUID')
 optim = 'adam'
@@ -165,10 +165,10 @@ if optim == 'sgd':
  
 lw1 = 1 #loss weight direct mapping
 lw2 = 1 #loss weight inverse mapping
-lw3 = 1 #loss weight identity mapping on x
+lw3 = 1 #loss weight identity mapping on x 
 lw4 = 1 #loss weight identity mapping on y
-lw5 = 0 #loss weight cycle for x
-lw6 = 0 #loss weight cycle for y
+lw5 = 1 #loss weight cycle for x
+lw6 = 1 #loss weight cycle for y
 lw7 = 1 #loss weight autoencoder for x
 lw8 = 1 #loss weight autoencoder for y
 
@@ -180,8 +180,8 @@ identity_consistency = 0
 reversible = 1 
 backward_order = 3
 encdec = 1
-n_levels = 1 #Check for 0 level, there is a bug...  
-  
+n_levels = 1    
+zero_output = False #to be modified if necessary
 
 prefix = socket.gethostname()+'_'+dataset
 if use_optim == 1:
@@ -199,6 +199,7 @@ else:
 if shared_blocks == 1:
   prefix += '_shared'  
 prefix+= '_'+ki
+prefix+= '_'+loss
 prefix+= '_ar'+str(ar)  
 prefix+= '_e'+str(epochs)+'_ps'+str(patch_size)+'_np'+str(x_train.shape[0])
 prefix+= '_bs'+str(batch_size)
@@ -209,6 +210,7 @@ prefix+= '_nlr'+str(n_layers_residual)
 prefix+= '_'+block_type
 prefix+= '_lw'+str(lw1)+'_'+str(lw2)+'_'+str(lw3)+'_'+str(lw4)+'_'+str(lw5)+'_'+str(lw6)+'_'+str(lw7)+'_'+str(lw8)
 prefix+= '_encdec'+str(encdec)
+prefix+= '_nlevels'+str(n_levels)
 prefix+= '_'+optim
 prefix+= '_'+lr_decay
 prefix+= '_'
@@ -229,7 +231,7 @@ else:
 #%%
 strategy = tf.distribute.MirroredStrategy()
 batch_size = batch_size * n_gpu
-
+print('Adapted batch size wrt number of GPUs : '+str(batch_size))
 print('Number of GPUs used:'+str(strategy.num_replicas_in_sync))
 
 with strategy.scope():
@@ -239,8 +241,7 @@ with strategy.scope():
     recon_model = build_recon_model_2d(init_shape=feature_shape, n_channelsY=n_channelsY, n_filters=n_filters, kernel_size=kernel_size)
   else:
     feature_model = build_encoder_2d(init_shape=init_shape, n_filters=n_filters, n_levels = n_levels)
-    recon_model = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)
-    
+    recon_model = build_decoder_2d(init_shape=feature_shape, n_filters=n_filters, n_levels = n_levels)     
   
   if reversible == 1:  
     block_f_x2y = []
@@ -339,6 +340,72 @@ step = 4000
 t2 = x_test[0:n*step:step,:,:,:]
 t1 = y_test[0:n*step:step,:,:,:]
 
+#%%
+#Simple direct to find the best parameters
+# with strategy.scope():
+#   ix = Input(shape=init_shape)	 
+#   fx= feature_model(ix)
+#   mx= mapping_x2y(fx)
+#   rx= recon_model(mx)
+#   modelgx = Model(inputs=ix, outputs=rx)
+
+# #Test full CNN for best performance
+# from tensorflow.keras.layers import Conv2D
+
+# with strategy.scope():
+#   ix = Input(shape=init_shape)
+#   x = conv_bn_relu_nd(ix, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   x = conv_bn_relu_nd(x, dimension=2, n_filters=n_filters)
+#   output=(Conv2D(1, (3, 3), activation='linear', padding='same'))(x)
+#   modelgx =  Model(ix,output)
+
+#   modelgx.compile(optimizer=Adam(lr=learning_rate), loss=loss)
+
+#   print('Number of parameters of gx model : '+str(modelgx.count_params()))
+
+#   hist = modelgx.fit(x=x_train, 
+#                             y=y_train, 
+#                             batch_size=batch_size, 
+#                             epochs=1,  
+#                             verbose=1, 
+#                             shuffle=True,
+#                             validation_data=(x_test,y_test))
+# print(hist.history)
+# plt.figure()
+# plt.plot(10*np.log10( dyn_t1 / hist.history['val_loss'] ))
+# plt.xlabel('epochs')
+# plt.legend(['$g(x)$'])
+# plt.savefig(output_path+prefix+'_gxcnn_psnr.png',dpi=150, bbox_inches='tight')
+# plt.close() 
+
+
+# # #%%
+#import sys
+#sys.exit()
+
+#%%
 
 class SaveFigureCallback(tf.keras.callbacks.Callback):
   def on_train_begin(self, logs={}):
@@ -453,12 +520,12 @@ y = [y_train,x_train,x_train,y_train,x_train,y_train,x_train,y_train]
 x_val = [x_test,y_test]
 y_val = [y_test,x_test,x_test,y_test,x_test,y_test,x_test,y_test]
 
-
+print('Learning model all gpu')
 hist = model_all_gpu.fit(x=x, 
                           y=y, 
                           batch_size=batch_size, 
                           epochs=epochs, 
-                          verbose=1, 
+                          verbose=2, 
                           shuffle=True,
                           validation_data=(x_val,y_val),
                           callbacks=callbacks)
@@ -469,6 +536,13 @@ hist = model_all_gpu.fit(x=x,
 joblib.dump(hist.history,output_path+prefix+'_kerashistory.pkl', compress=True)
 joblib.dump((keras_loss,keras_val,inverr,losses,psnrs),output_path+prefix+'_myhistory.pkl', compress=True)
 model_all_gpu.save(output_path+prefix+'_model.h5')
+feature_model.save(output_path+prefix+'_feature_model.h5')
+mapping_x2y.save(output_path+prefix+'_mapping_x2y.h5')
+mapping_y2x.save(output_path+prefix+'_mapping_y2x.h5')
+recon_model.save(output_path+prefix+'_recon_model.h5')
+
+
+
 #joblib.dump((feature_model,mapping_x2y,mapping_y2x,recon_model),output_path+prefix+'_models.pkl', compress=True)
 
 
