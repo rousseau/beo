@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Conv3D, BatchNormalization, Activation, Input, Add, Lambda, Dropout, Conv2DTranspose
-from tensorflow.keras.layers import Conv2D, UpSampling2D, GlobalAveragePooling2D
+from tensorflow.keras.layers import Conv2D, UpSampling2D, GlobalAveragePooling2D, MaxPooling2D, Concatenate
 from tensorflow.keras.layers import UpSampling3D, MaxPooling3D, Subtract, GlobalAveragePooling3D, Reshape
 from tensorflow.keras.layers import concatenate, Flatten, Multiply
 from tensorflow.keras.regularizers import l1, l2
@@ -1020,6 +1020,37 @@ def TriangleModel(init_shape, feature_shape, feature_model, block_PD_to_T2, bloc
   
   return model  
 
+#Unet from https://github.com/pietz/unet-keras/blob/master/unet.py
+def unet_conv_block(m, dim, acti, bn, res, do=0):
+	n = Conv2D(dim, 3, activation=acti, padding='same')(m)
+	n = BatchNormalization()(n) if bn else n
+	n = Dropout(do)(n) if do else n
+	n = Conv2D(dim, 3, activation=acti, padding='same')(n)
+	n = BatchNormalization()(n) if bn else n
+	return Concatenate()([m, n]) if res else n
+
+def unet_level_block(m, dim, depth, inc, acti, do, bn, mp, up, res):
+	if depth > 0:
+		n = unet_conv_block(m, dim, acti, bn, res)
+		m = MaxPooling2D()(n) if mp else Conv2D(dim, 3, strides=2, padding='same')(n)
+		m = unet_level_block(m, int(inc*dim), depth-1, inc, acti, do, bn, mp, up, res)
+		if up:
+			m = UpSampling2D()(m)
+			m = Conv2D(dim, 2, activation=acti, padding='same')(m)
+		else:
+			m = Conv2DTranspose(dim, 3, strides=2, activation=acti, padding='same')(m)
+		n = Concatenate()([n, m])
+		m = unet_conv_block(n, dim, acti, bn, res)
+	else:
+		m = unet_conv_block(m, dim, acti, bn, res, do)
+	return m
+
+def UNet(img_shape, out_ch=1, start_ch=64, depth=4, inc_rate=2., activation='relu', 
+		 dropout=0.5, batchnorm=False, maxpool=True, upconv=True, residual=False, last_activation='sigmoid'):
+	i = Input(shape=img_shape)
+	o = unet_level_block(i, start_ch, depth, inc_rate, activation, dropout, batchnorm, maxpool, upconv, residual)
+	o = Conv2D(out_ch, 1, activation=last_activation)(o)
+	return Model(inputs=i, outputs=o)
 
 
   
