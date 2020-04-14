@@ -13,9 +13,10 @@ from sklearn.utils import shuffle
 import tensorflow.keras.backend as K
 from tensorflow.keras import regularizers
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, GlobalAveragePooling2D, Activation
+from tensorflow.keras.layers import Input, Conv2D, Concatenate, MaxPooling2D, Conv2DTranspose, GlobalAveragePooling2D, Activation, Reshape
 from tensorflow.keras.layers import UpSampling2D, Dropout, BatchNormalization, Flatten, Dense, Lambda, concatenate, Multiply, Add, Subtract
 from tensorflow.keras.optimizers import Adam, RMSprop
+from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
 from model_zoo import build_4_model, build_encoder_2d, build_decoder_2d, build_block_model_2d, build_reversible_forward_model_2d, build_reversible_backward_model_2d, UNet
 
@@ -30,7 +31,7 @@ def wasserstein_loss(y_true, y_pred):
 #%%
 
 dataset = 'HCP' #HCP or IXI or Bazin  
-patch_size = 128 
+patch_size = 64 
 
 if dataset == 'IXI':  
   X_train = joblib.load(home+'/Exp/IXI_T1_2D_'+str(patch_size)+'_training.pkl')
@@ -47,20 +48,45 @@ if dataset == 'Bazin':
 #%%
 
 multigpu = 0
-mem_limit = 1
+mem_limit = 0
+use_fp16 = 0 
 
+#Limited memory growth -> allows to check the memory required in each GPU
+if mem_limit == 1:
+  gpus = tf.config.experimental.list_physical_devices('GPU')
+  if gpus:
+    try:
+      # Currently, memory growth needs to be the same across GPUs
+      for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+      logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+      print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+      # Memory growth must be set before GPUs have been initialized
+      print(e)
+
+if use_fp16 == 1:  
+  policy = mixed_precision.Policy('mixed_float16')
+  mixed_precision.set_policy(policy)
+  print('Compute dtype: %s' % policy.compute_dtype) 
+  print('Variable dtype: %s' % policy.variable_dtype)
+
+#%%
 batch_size = 16  
-epochs = 25
+epochs = 8       #n_epochs per learning steps
 n_filters = 32
 n_channelsX = 1
-n_channelsY = 1
+n_channelsY = 1 
 
 #Mapping parameters
-reversible_mapping = 0 
-n_layers = 10          #number of layers for the numerical integration scheme (ResNet)
+n_layers_list = [8]#[1,2,4,8,16,32,64]
+n_layers = np.max(n_layers_list)           #number of layers for the numerical integration scheme (ResNet)
 n_layers_residual = 2  #number of layers for the parametrization of the velocity fields
+
+reversible_mapping = 0 
 shared_blocks = 0
-backward_order = 3     #Behrmann et al. ICML 2019 used 100
+backward_order = 1     #Behrmann et al. ICML 2019 used 100
+scaling_weights = 0
 
 #Discriminator parameters
 n_levels_discriminator = 4
@@ -74,13 +100,15 @@ n_critic_steps = 1
 
 
 ki = 'glorot_normal' #kernel initializer
-ar = 0#1e-6                #activity regularization (L2)
+ar = 1e-5  #1e-6                #activity regularization (L2)
+kr = 0                     #kernel regularization (L1)
 optimizer = Adam(0.0001)#RMSprop(lr=0.00005)#Adam(0.0002, 0.5)
+
 lambda_adv = 0.1
 lambda_direct = 1
 lambda_cycle = 1
-lambda_id = 0# * lambda_cycle
-lambda_ae = 0  
+lambda_id = 1# * lambda_cycle
+lambda_ae = 1  
 save_interval=10000 
 pre_generator_training = False
 pre_discriminator_training = False
@@ -100,27 +128,37 @@ lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
 p = types.SimpleNamespace() #All parameters in p
 #p.n_critic_steps = n_critic_steps
 #p.n_filters_discriminator = n_filters_discriminator
+if use_fp16 == 1:
+  p.use_fp16 = use_fp16
 p.epochs = epochs
 p.batch_size = batch_size
 p.n_filters = n_filters
 p.n_layers = n_layers
+if len(n_layers_list)>1:
+  p.prog_learning = 1
 p.reversible_mapping = reversible_mapping
 if reversible_mapping == 0:
   p.backward_order = backward_order
 p.shared_blocks = shared_blocks
+p.scaling_weights = scaling_weights
 p.ar = ar
-p.lambda_direct = lambda_direct
-p.lambda_cycle = lambda_cycle
-p.lambda_id = lambda_id
-p.lambda_ae = lambda_ae
+#p.lambda_direct = lambda_direct
+#p.lambda_cycle = lambda_cycle
+#p.lambda_id = lambda_id
+#p.lambda_ae = lambda_ae
 
-prefix = socket.gethostname()+'_'
+if 'Precision' in socket.gethostname():
+  prefix = 'dell_'
+else:
+  prefix = 'aorus_'
+  
 dic = vars(p)
 for k in dic.keys():
   prefix += k+'_'+str(dic[k])+'_'
 print(prefix)  
 
 output_path = home+'/Sync/Experiments/'+dataset+'/'
+
 
 #%%
 
@@ -163,22 +201,6 @@ def show_patches(patch_list,titles, filename):
   plt.close()
   
 #%%
-
-#Limited memory growth -> allows to check the memory required in each GPU
-if mem_limit == 1:
-  gpus = tf.config.experimental.list_physical_devices('GPU')
-  if gpus:
-    try:
-      # Currently, memory growth needs to be the same across GPUs
-      for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-      logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-      print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-    except RuntimeError as e:
-      # Memory growth must be set before GPUs have been initialized
-      print(e)
-
-#%%
 if multigpu == 1:
   strategy = tf.distribute.MirroredStrategy()
 
@@ -210,7 +232,12 @@ def build_feature_model(init_shape=init_shape, n_filters=n_filters):
 
   features = Activation('tanh')(features)
   
+  # if use_fp16 == 1:
+  #   features = tf.keras.layers.Activation('linear', dtype='float32')(features)
+  
   model = Model(inputs=inputs, outputs=features)
+  
+  #return sparsity.prune_low_magnitude(model, **pruning_params)
   return model
 
 def build_recon_model(init_shape, n_filters=32):  
@@ -228,6 +255,9 @@ def build_recon_model(init_shape, n_filters=32):
                     strides=1,
                     activation='linear')(recon)
   
+  if use_fp16 == 1:
+    recon = tf.keras.layers.Activation('linear', dtype='float32')(recon)
+  
   model = Model(inputs=inputs, outputs=recon)
   return model
 
@@ -235,7 +265,8 @@ def build_block_mapping_2d(init_shape,
                          n_filters=32, 
                          n_layers=2, 
                          kernel_initializer = 'glorot_uniform',
-                         activity_regularizer = 0):
+                         activity_regularizer = 0,
+                         kernel_regularizer = 0):
   
   inputs = Input(shape=init_shape)
   x = inputs
@@ -244,13 +275,15 @@ def build_block_mapping_2d(init_shape,
     x = Conv2D((int)(n_filters), (3, 3), padding='same', kernel_initializer=kernel_initializer,
                     use_bias=False,
                     strides=1,
-                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
+                    activity_regularizer = tf.keras.regularizers.l2(activity_regularizer),
+                    kernel_regularizer = tf.keras.regularizers.l1(kernel_regularizer))(x)
     x = Activation('relu')(x)
 
   x = Conv2D(n_filters, (3, 3), padding='same', kernel_initializer=kernel_initializer,
                   use_bias=False,
                   strides=1,
-                  activity_regularizer = tf.keras.regularizers.l2(activity_regularizer))(x)
+                  activity_regularizer = tf.keras.regularizers.l2(activity_regularizer),
+                  kernel_regularizer = tf.keras.regularizers.l1(kernel_regularizer))(x)
   
   x = Activation('tanh')(x) #required for approximation of the inverse
     
@@ -259,17 +292,17 @@ def build_block_mapping_2d(init_shape,
   return model
 
 def build_forward_block_mapping_2d(init_shape, block):
-  # mapping type : 0 (reversible architecture), 1 (residual networks)
+  # mapping type : 1 (reversible architecture), 0 (residual networks)
   # block : 2 blocks (reversible) or 1 block (residual networks)
   
   if len(block) == 1:
-    mapping_type = 1
+    reversible_mapping = 0
   else:
-    mapping_type = 0
+    reversible_mapping = 1
     
   inputs = Input(shape=init_shape)
   
-  if mapping_type == 1:
+  if reversible_mapping == 0:
     x = block[0](inputs)
     outputs = Add()([inputs,x])
     
@@ -300,18 +333,18 @@ def build_forward_block_mapping_2d(init_shape, block):
   return model
 
 def build_backward_block_mapping_2d(init_shape, block, order = 1):
-  # mapping type : 0 (reversible architecture), 1 (residual networks)
+  # mapping type : 1 (reversible architecture), 0 (residual networks)
   # block : 2 blocks (reversible) or 1 block (residual networks)
   # order : approximation order for backward block for residual network
 
   if len(block) == 1:
-    mapping_type = 1
+    reversible_mapping = 0
   else:
-    mapping_type = 0
+    reversible_mapping = 1
     
   inputs = Input(shape=init_shape)
   
-  if mapping_type == 1:
+  if reversible_mapping == 0:
     x = inputs
     #Third order approximation of v, the inverse of u (assumed to be linear !!!).
     #v = -u + u² -u³ ...
@@ -369,6 +402,129 @@ def build_mapping(init_shape, blocks):
   model = Model(inputs=inputs, outputs=outputs)
   return model
 
+def build_direct_generator(init_shape, feature_model, mapping, reconstruction_model):
+  ix = Input(shape=init_shape)	
+  fx = feature_model(ix)   
+  mx2y = mapping(fx)
+  rx2y = reconstruction_model(mx2y)
+
+  model = Model(inputs=[ix], 
+                outputs=[rx2y])  
+  return model
+
+def build_cycle_generator(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
+  ix = Input(shape=init_shape)	 
+  fx = feature_model(ix)   
+  mx2y = mapping_x_to_y(fx)
+  rx2y = reconstruction_model(mx2y)
+  frx2y = feature_model(rx2y)
+  mx2y2x = mapping_y_to_x(frx2y)
+  rx2y2x = reconstruction_model(mx2y2x)  
+
+  model = Model(inputs=[ix], 
+                outputs=[rx2y2x])  
+  return model
+
+def build_ae_generator(init_shape, feature_model, reconstruction_model):  
+  ix = Input(shape=init_shape)	 
+  fx = feature_model(ix)   
+  idx2x = reconstruction_model(fx)  
+
+  model = Model(inputs=[ix], 
+                outputs=[idx2x])  
+  return model
+
+def zero_loss_generator(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
+  ix = Input(shape=init_shape)	
+  iy = Input(shape=init_shape)	
+
+# lw1 = lambda_direct #loss weight direct mapping
+# lw2 = lambda_direct #loss weight inverse mapping
+# lw3 = lambda_id #loss weight identity mapping on x 
+# lw4 = lambda_id #loss weight identity mapping on y
+# lw5 = lambda_cycle #loss weight cycle for x
+# lw6 = lambda_cycle #loss weight cycle for y
+# lw7 = lambda_ae #loss weight autoencoder for x
+# lw8 = lambda_ae #loss weight autoencoder for y
+  errors = []
+  if lw1 > 0 : 
+    model1 = build_direct_generator(init_shape, feature_model, mapping_x_to_y, reconstruction_model)
+    rx2y = model1(ix)
+    err = Subtract()([rx2y,iy])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+    
+  if lw2 > 0 : 
+    model2 = build_direct_generator(init_shape, feature_model, mapping_y_to_x, reconstruction_model)
+    ry2x = model2(iy)
+    err = Subtract()([ry2x,ix])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw3 > 0 :
+    model3 = build_direct_generator(init_shape, feature_model, mapping_y_to_x, reconstruction_model)
+    rx2x = model3(ix)
+    err = Subtract()([rx2x,ix])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw4 > 0 :
+    model4 = build_direct_generator(init_shape, feature_model, mapping_x_to_y, reconstruction_model)
+    ry2y = model4(iy)
+    err = Subtract()([ry2y,iy])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw5 > 0 :
+    model5 = build_cycle_generator(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model)
+    rx2y2x = model5(ix)
+    err = Subtract()([rx2y2x,ix])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw6 > 0 :
+    model6 = build_cycle_generator(init_shape, feature_model, mapping_y_to_x, mapping_x_to_y, reconstruction_model)
+    ry2x2y = model6(iy)
+    err = Subtract()([ry2x2y,iy])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw7 > 0 :
+    model7 = build_ae_generator(init_shape, feature_model, reconstruction_model)
+    idx2x = model7(ix)
+    err = Subtract()([idx2x,ix])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  if lw8 > 0 :
+    model8 = build_ae_generator(init_shape, feature_model, reconstruction_model)
+    idy2y = model8(iy)
+    err = Subtract()([idy2y,iy])
+    err = Lambda(lambda x:K.pow(x,2))(err)
+    err = GlobalAveragePooling2D()(err)
+    err = Reshape((1,))(err)
+    errors.append(err)
+
+  errsum = Add()(errors)
+  if use_fp16 == 1:
+    errsum = tf.keras.layers.Activation('linear', dtype='float32')(errsum)
+    
+  return Model(inputs=[ix,iy], outputs=errsum)  
+  
 def build_generator(init_shape, feature_model, mapping_x_to_y, mapping_y_to_x, reconstruction_model):
   ix = Input(shape=init_shape)	
   iy = Input(shape=init_shape)	
@@ -412,28 +568,30 @@ def build_intermediate_model(init_shape, feature_model, mapping):
   ix = Input(shape=init_shape)	
   fx = feature_model(ix)   
   mx2y = mapping(fx)
+  if use_fp16 == 1:
+    mx2y = tf.keras.layers.Activation('linear', dtype='float32')(mx2y)
+
   model = Model(inputs=[ix], 
                 outputs=[mx2y])  
   return model
   
 #%%
-forward_blocks = []
-backward_blocks= []
-block_x2y_list = []
-intermediate_models = []
 
-def build_all_models():
-  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters)  
-  recon_model = build_recon_model(init_shape=feature_shape, n_filters=n_filters) 
- 
+
+
+def build_mapping_blocks():
+  forward_blocks = []
+  backward_blocks= []
+  block_x2y_list = []
+
   if shared_blocks == 1:
     if reversible_mapping == 1:
-      block_f_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
-      block_g_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
+      block_f_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)
+      block_g_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)
       block_x2y = [block_f_x2y,block_g_x2y]
       
     else:
-      block_x2y = [build_block_mapping_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)]
+      block_x2y = [build_block_mapping_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)]
       
     forward_block = build_forward_block_mapping_2d(init_shape=feature_shape, block=block_x2y)
     backward_block = build_backward_block_mapping_2d(init_shape=feature_shape, block=block_x2y, order = backward_order)    
@@ -446,12 +604,12 @@ def build_all_models():
   else:
     for l in range(n_layers):
       if reversible_mapping == 1:
-        block_f_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
-        block_g_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
+        block_f_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)
+        block_g_x2y = build_block_mapping_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)
         block_x2y = [block_f_x2y,block_g_x2y]
         
       else:
-        block_x2y = [build_block_mapping_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)]
+        block_x2y = [build_block_mapping_2d(init_shape=feature_shape, n_filters=n_filters, n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar, kernel_regularizer=kr)]
         
       forward_block = build_forward_block_mapping_2d(init_shape=feature_shape, block=block_x2y)
       backward_block = build_backward_block_mapping_2d(init_shape=feature_shape, block=block_x2y, order = backward_order)    
@@ -459,20 +617,42 @@ def build_all_models():
       forward_blocks.append(forward_block)
       backward_blocks.append(backward_block)
       block_x2y_list.append(block_x2y)
+  return (forward_blocks, backward_blocks, block_x2y_list)  
 
-      
-  mapping_x2y = build_mapping(init_shape=feature_shape, blocks = forward_blocks)
-  mapping_y2x = build_mapping(init_shape=feature_shape, blocks = backward_blocks)
-      
-  #Build intermediate models 
-  for l in range(n_layers):
-    intermediate_models.append( build_intermediate_model(init_shape, feature_model, build_mapping(init_shape=feature_shape, blocks = forward_blocks[:(l+1)]) ) )
-
-  paired_generator = build_generator(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
-  paired_generator.compile(optimizer=optimizer, loss='mse', loss_weights=lws) 
-  paired_generator.summary()
+def build_all_models():
+  feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters)  
+  recon_model = build_recon_model(init_shape=feature_shape, n_filters=n_filters) 
  
-  return (feature_model, recon_model, mapping_x2y, mapping_y2x, paired_generator)  
+  forward_blocks, backward_blocks, block_x2y_list = build_mapping_blocks()
+
+  return (feature_model, recon_model, forward_blocks, backward_blocks, block_x2y_list)  
+
+        
+  # mapping_x2y = build_mapping(init_shape=feature_shape, blocks = forward_blocks)
+  # mapping_y2x = build_mapping(init_shape=feature_shape, blocks = backward_blocks)
+      
+  # #Build intermediate models 
+  # for l in range(n_layers):
+  #   intermediate_models.append( build_intermediate_model(init_shape, feature_model, build_mapping(init_shape=feature_shape, blocks = forward_blocks[:(l+1)]) ) )
+
+  # paired_generator = build_generator(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
+  # paired_generator.compile(optimizer=optimizer, loss='mse', loss_weights=lws) 
+  # paired_generator.summary()
+  
+  # zero_loss_model = zero_loss_generator(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
+ 
+  # return (feature_model, recon_model, mapping_x2y, mapping_y2x, paired_generator,zero_loss_model)  
+
+# if multigpu == 1:  
+#   with strategy.scope():
+#     models = build_all_models()
+# else:
+#   models = build_all_models()    
+
+# (feature_model, recon_model, mapping_x2y, mapping_y2x, paired_generator,zero_loss_model) = models  
+
+#%%
+intermediate_models = []
 
 if multigpu == 1:  
   with strategy.scope():
@@ -480,47 +660,7 @@ if multigpu == 1:
 else:
   models = build_all_models()    
 
-(feature_model, recon_model, mapping_x2y, mapping_y2x, paired_generator) = models  
-#%%
-# loss = 'mse' 
-# lw1 = 1 #loss weight direct mapping
-# lw2 = 1 #loss weight inverse mapping
-# lw3 = 1 #loss weight identity mapping on x 
-# lw4 = 1 #loss weight identity mapping on y
-# lw5 = 1 #loss weight cycle for x
-# lw6 = 1 #loss weight cycle for y
-# lw7 = 1 #loss weight autoencoder for x
-# lw8 = 1 #loss weight autoencoder for y
-
-# lws = [lw1,lw2,lw3,lw4,lw5,lw6,lw7,lw8]
-
-# with strategy.scope():
-# #for _ in range(1):  
-#   print('in strategy scope')
-#   feature_model = build_feature_model(init_shape=init_shape, n_filters=n_filters)
-#   recon_model = build_recon_model(init_shape=feature_shape, n_filters=n_filters, n_levels = 0) 
-    
-#   block_f_x2y = []
-#   block_g_x2y = []
-#   if shared_blocks == 0:
-#     for l in range(n_layers):
-#       block_f_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar))
-#       block_g_x2y.append(build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar))
-#   else:
-#     bf = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
-#     bg = build_block_model_2d(init_shape=half_feature_shape, n_filters=(int)(n_filters/2), n_layers=n_layers_residual, kernel_initializer=ki, activity_regularizer=ar)
-#     for l in range(n_layers):
-#       block_f_x2y.append(bf)
-#       block_g_x2y.append(bg)
-
-#   mapping_x2y = build_reversible_forward_model_2d(init_shape=feature_shape, block_f=block_f_x2y, block_g = block_g_x2y, n_layers=n_layers)
-#   mapping_y2x = build_reversible_backward_model_2d(init_shape=feature_shape, block_f=block_f_x2y, block_g = block_g_x2y, n_layers=n_layers)
-  
-#   paired_generator = build_4_model(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
-#   paired_generator.compile(optimizer=optimizer, loss=loss, loss_weights=lws) 
-#   paired_generator.summary()
-#%%
-
+(feature_model, recon_model, forward_blocks, backward_blocks, block_x2y_list) = models  
 
   
 #%%
@@ -576,51 +716,41 @@ def compute_lipschitz_conv_keras(weights, n_iter = 50):
   L = np.dot( np.transpose(u.flatten()), Wv.flatten())
   
   return L
-  
-  
-
-#%%
-
-#shared reversible
-# block_tmp = block_x2y_list[0][0]
-
-# for layer in block_tmp.layers:
-#   print(layer.name)
-#   if 'conv2d' in layer.name:
-#     W = layer.get_weights()    
-#     print(W[0].shape) # shape of W : 3d kernel * nb_filters
-
-#     L = compute_lipschitz_conv_keras(W)
-#     #for f in range(W[0].shape[3]):
-#       #L = compute_lipschitz_conv_weights(W[0][:,:,:,f]) # cannot use scipy because there is no option 'valid' on channel axis onyl
-
-#     print(L)
-      
+ 
+       
 #%%
 callbacks = []
 
+n_samples = X_test.shape[0]
+#Take 10 examples for visualization
 n = 10
-step = 4000
+step = (int)(n_samples / n)
+t1_vis = X_test[0:n*step:step,:,:,:]
+t2_vis = Y_test[0:n*step:step,:,:,:]
+
+#Take more examples for callback computations
+n = 100
+step = (int)(n_samples / n)
 t1 = X_test[0:n*step:step,:,:,:]
 t2 = Y_test[0:n*step:step,:,:,:]
 
 class SaveFigureCallback(tf.keras.callbacks.Callback):
-  def on_train_begin(self, logs={}):
-    self.train_loss = None
-    self.val_loss = None
-    self.train_psnr = None
-    self.val_psnr = None
-    self.inverr = []
     
   def on_epoch_end(self,epoch,logs):
     
-    [a,b,c,d,e,f,g,h] = self.model.predict(x=[t1,t2], batch_size = batch_size)
-    show_patches(patch_list=[t1,t2,a,b,c,d,e,f,g,h],
+    [a,b,c,d,e,f,g,h] = self.model.predict(x=[t1_vis,t2_vis], batch_size = batch_size)
+    show_patches(patch_list=[t1_vis,t2_vis,a,b,c,d,e,f,g,h],
                  titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
                  filename=output_path+prefix+'_current'+str(epoch)+'fig_patches.png')
 
-callbacks.append(SaveFigureCallback())
+callbacks.append(SaveFigureCallback()) 
 
+def save_figure(model, x, y, filename):
+  [a,b,c,d,e,f,g,h] = model.predict(x=[x,y], batch_size = batch_size)
+  show_patches(patch_list=[x,y,a,b,c,d,e,f,g,h],
+               titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
+               filename=filename)
+  
 #%%
 print('Number of convolution blocks : '+str((len(block_x2y_list) * len(block_x2y_list[0] ))))
       
@@ -629,6 +759,7 @@ class LipschitzCallback(tf.keras.callbacks.Callback):
     self.L = np.zeros( (len(block_x2y_list) * len(block_x2y_list[0] ), epochs) )
     
   def on_epoch_end(self,epoch,logs): 
+    print('Computing Lipschitz constant')
     i = 0
     for blocks in block_x2y_list:
       for block in blocks:  
@@ -637,10 +768,12 @@ class LipschitzCallback(tf.keras.callbacks.Callback):
           if 'conv2d' in layer.name:
             tmp = compute_lipschitz_conv_keras(weights = layer.get_weights(), n_iter = 5)
             cst *= tmp
-            print('Lipschitz conv block '+str(i)+' at epoch '+str(epoch)+' : '+str(tmp))
+            #print('Lipschitz conv block '+str(i)+' at epoch '+str(epoch)+' : '+str(tmp))
+        #print('Lipschitz combined conv block '+str(i)+' at epoch '+str(epoch)+' : '+str(cst))  
         self.L[i,epoch] = cst    
         i = i+1
-    
+    print('Max Lipschitz value : '+str( np.max(self.L[:,epoch]) ))
+
     plt.figure(figsize=(4,4))
     
     for i in range(self.L.shape[0]):
@@ -650,7 +783,7 @@ class LipschitzCallback(tf.keras.callbacks.Callback):
 
     plt.figure(figsize=(4,4))
     
-    im = plt.imshow(self.L,cmap=plt.cm.gray,
+    im = plt.imshow(self.L,cmap=plt.cm.gray, 
                  interpolation="nearest",
                  vmin=0,vmax=3)
     plt.colorbar(im)
@@ -659,6 +792,21 @@ class LipschitzCallback(tf.keras.callbacks.Callback):
     
 
 callbacks.append(LipschitzCallback())
+
+def compute_lipschitz():
+  L = []
+  for blocks in block_x2y_list:
+    for block in blocks:  
+      cst = 1
+      for layer in block.layers:
+        if 'conv2d' in layer.name:
+          tmp = compute_lipschitz_conv_keras(weights = layer.get_weights(), n_iter = 5)
+          cst *= tmp
+      L.append(cst)
+  print('Lipschitz value : '+str(np.max(L)))
+  return np.max(L)
+
+
 
 #%%
 
@@ -672,6 +820,10 @@ class ReversibilityCallback(tf.keras.callbacks.Callback):
     fx= feature_model(ix)
     mx= mapping_x2y(fx)
     my= mapping_y2x(mx)
+    if use_fp16 == 1:
+      fx = tf.keras.layers.Activation('linear', dtype='float32')(fx)
+      my = tf.keras.layers.Activation('linear', dtype='float32')(my)
+
     tmpmodel = Model(inputs=ix, outputs=[fx,my])
     tmpmodel.compile(optimizer=optimizer, 
                     loss='mse')
@@ -688,6 +840,24 @@ class ReversibilityCallback(tf.keras.callbacks.Callback):
 
 callbacks.append(ReversibilityCallback())
 
+def compute_reversibility_error():
+  ix = Input(shape=init_shape)	
+  fx= feature_model(ix)
+  mx= mapping_x2y(fx)
+  my= mapping_y2x(mx)
+  if use_fp16 == 1:
+    fx = tf.keras.layers.Activation('linear', dtype='float32')(fx)
+    my = tf.keras.layers.Activation('linear', dtype='float32')(my)
+
+  tmpmodel = Model(inputs=ix, outputs=[fx,my])
+  tmpmodel.compile(optimizer=optimizer, 
+                  loss='mse')
+
+  [a,b] = tmpmodel.predict(x=t1, batch_size = batch_size)
+  res = np.mean((a - b)**2)
+  print('Reversibility error : '+str(res))
+  return res  
+
 #%%
 #Compute the norm of the velocity field 
 #(training or testing data?)
@@ -695,10 +865,11 @@ callbacks.append(ReversibilityCallback())
 
 class NormVelocityCallback(tf.keras.callbacks.Callback):
   def on_train_begin(self, logs={}):
-    self.norm_velocity = np.zeros((n_layers, epochs))
+    self.norm_velocity = np.zeros((len(intermediate_models), epochs))
   
   def on_epoch_end(self,epoch,logs): 
-    for l in range(n_layers):
+    print('Computing norm of velocity field')
+    for l in range(len(intermediate_models)):
       a = intermediate_models[l].predict(x=t1, batch_size = batch_size)
       self.norm_velocity[l,epoch] = np.max(np.linalg.norm(a.reshape((a.shape[0],-1)), ord=np.inf,axis=1))
 
@@ -709,8 +880,7 @@ class NormVelocityCallback(tf.keras.callbacks.Callback):
     plt.savefig(output_path+prefix+'_norm_velocity.png',dpi=150, bbox_inches='tight')
     plt.close()
 
-    plt.figure(figsize=(4,4))
-    
+    plt.figure(figsize=(4,4))    
     im = plt.imshow(self.norm_velocity,cmap=plt.cm.gray,
                  interpolation="nearest")
     plt.colorbar(im)
@@ -719,15 +889,26 @@ class NormVelocityCallback(tf.keras.callbacks.Callback):
 
 callbacks.append(NormVelocityCallback())
 
+def compute_norm_velocity():
+  norm_velocity = []
+  for l in range(len(intermediate_models)):
+    a = intermediate_models[l].predict(x=t1, batch_size = batch_size)
+    norm_velocity.append( np.max(np.linalg.norm(a.reshape((a.shape[0],-1)), ord=np.inf,axis=1)) )
+  return norm_velocity
+  
 
 #%%
 class GradientVelocityCallback(tf.keras.callbacks.Callback):
   def on_train_begin(self, logs={}):
-    self.norm_gradient_velocity = np.zeros((n_layers, epochs))  
+    self.norm_gradient_velocity = np.zeros((len(intermediate_models), epochs))  
   def on_epoch_end(self,epoch,logs): 
-    for l in range(n_layers):
+    print('Computing gradient of velocity field')
+    for l in range(len(intermediate_models)):
       
-      inp = tf.Variable(np.random.normal(size= t1.shape), dtype=tf.float32)
+      if use_fp16 == 1:
+        inp = tf.Variable(np.random.normal(size= t1.shape), dtype=tf.float16)
+      else:      
+        inp = tf.Variable(np.random.normal(size= t1.shape), dtype=tf.float32)
       with tf.GradientTape() as tape:
         preds = intermediate_models[l](inp)
       grads = tape.gradient(preds,inp)      
@@ -757,9 +938,22 @@ class GradientVelocityCallback(tf.keras.callbacks.Callback):
 if multigpu == 0:
   callbacks.append(GradientVelocityCallback())
 
-#%%
-
-#ajouter le calcul du gradient de chaque v par rapport aux données, en fonction des epochs
+def compute_gradient_velocity():
+  norm_gradient_velocity = []
+  for l in range(len(intermediate_models)):
+    
+    if use_fp16 == 1:
+      inp = tf.Variable(np.random.normal(size= t1.shape), dtype=tf.float16)
+    else:      
+      inp = tf.Variable(np.random.normal(size= t1.shape), dtype=tf.float32)
+    with tf.GradientTape() as tape:
+      preds = intermediate_models[l](inp)
+    grads = tape.gradient(preds,inp)      
+    
+    a = grads.numpy()
+    norm_gradient_velocity.append( np.max(np.linalg.norm(a.reshape((a.shape[0],-1)), ord=np.inf,axis=1)) )
+  return norm_gradient_velocity  
+  
 
 #%%
 x = [X_train,Y_train]
@@ -768,13 +962,102 @@ y = [Y_train,X_train,X_train,Y_train,X_train,Y_train,X_train,Y_train]
 x_test = [X_test,Y_test]
 y_test = [Y_test,X_test,X_test,Y_test,X_test,Y_test,X_test,Y_test]
 
-hist = paired_generator.fit(x=x, 
-                          y=y, 
-                          batch_size=batch_size, 
-                          epochs=epochs, 
-                          shuffle=True,
-                          callbacks=callbacks,
-                          validation_data=(x_test,y_test))
+#%%
+
+print('Progressive Learning')
+print(callbacks)
+print('max n_layers : '+str(len(forward_blocks)))
+
+hist = None
+
+it = 0
+n_epochs = 0
+L = []
+R = []
+max_epochs = epochs * len(n_layers_list)
+norm_velocity = np.zeros( (n_layers , max_epochs) )
+norm_gradient_velocity = np.zeros( (n_layers, max_epochs) )  
+
+
+for nl in range(len(n_layers_list)):
+  print('*********************** NEW SCALE **********************************')
+  n_blocks = n_layers_list[nl]
+  print(str(len(forward_blocks[0:n_blocks]))+' mapping layers ')
+  
+  if scaling_weights == 1:
+    if it > 0:
+      scaling = n_layers_list[nl-1] * 1.0 / n_layers_list[nl]
+      print('Doing weight scaling by '+str( scaling ))
+      for blocks in block_x2y_list:
+        for block in blocks:  
+          for layer in block.layers:
+            if 'conv2d' in layer.name:
+              weights = layer.get_weights() #list of numpy array
+              for w in weights:
+                w *= scaling
+              layer.set_weights(weights)      
+  it += 1
+  
+  
+  mapping_x2y = build_mapping(init_shape=feature_shape, blocks = forward_blocks[0:n_blocks])
+  mapping_y2x = build_mapping(init_shape=feature_shape, blocks = backward_blocks[0:n_blocks])
+  
+  intermediate_models = []
+  for l in range(n_blocks):
+    intermediate_models.append( build_intermediate_model(init_shape, feature_model, build_mapping(init_shape=feature_shape, blocks = forward_blocks[:(l+1)]) ) )
+  
+  progressive_generator = build_generator(init_shape, feature_model, mapping_x2y, mapping_y2x, recon_model)
+  progressive_generator.compile(optimizer=optimizer, loss='mse', loss_weights=lws) 
+  progressive_generator.summary()
+  
+  for e in range(epochs):
+    tmp_hist = progressive_generator.fit(x=x, y=y, batch_size=batch_size, 
+                                         epochs=1, 
+                                         shuffle=True, 
+                                         validation_data=(x_test,y_test))
+    
+    save_figure(progressive_generator, t1_vis, t2_vis, output_path+prefix+'_current'+str(n_epochs)+'fig_patches.png')
+
+    L.append( compute_lipschitz() )
+    plt.figure(figsize=(4,4))    
+    plt.plot(L)
+    plt.savefig(output_path+prefix+'_lipschitz.png',dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    R.append( compute_reversibility_error() )
+    plt.figure()
+    plt.plot(R)
+    plt.legend(['$\| f(x) - m^{-1} \circ m \circ f(x) \|^2$'])
+    plt.savefig(output_path+prefix+'_inverr.png',dpi=150, bbox_inches='tight')
+    plt.close()   
+
+    nv = compute_norm_velocity()
+    norm_velocity[0:len(nv),n_epochs] = nv
+    plt.figure()    
+    im = plt.imshow(norm_velocity,cmap=plt.cm.gray,
+                 interpolation="nearest")
+    plt.colorbar(im)
+    plt.savefig(output_path+prefix+'_norm_velocity_matrix.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    ngv = compute_gradient_velocity()
+    norm_gradient_velocity[0:len(ngv),n_epochs] = ngv
+    plt.figure()    
+    im = plt.imshow(norm_gradient_velocity,cmap=plt.cm.gray,
+                 interpolation="nearest")
+    plt.colorbar(im)
+    plt.savefig(output_path+prefix+'_norm_gradient_velocity_matrix.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+    n_epochs += 1
+    
+  
+    if hist is None:
+      hist = tmp_hist
+    else:
+      for k in list(hist.history.keys()):
+        hist.history[k] = hist.history[k] + tmp_hist.history[k] 
 
 #Save hist figure
 plt.figure(figsize=(4,4))
@@ -803,27 +1086,100 @@ plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$',
 plt.savefig(output_path+prefix+'_loss_validation.png',dpi=150, bbox_inches='tight')
 plt.close()
 
+#%%    
+#Pickle / save everything
+import copy 
+
+joblib.dump((copy.deepcopy(hist.history), L, R, norm_velocity, norm_gradient_velocity),output_path+prefix+'_hist.pkl', compress=True)
+feature_model.save(output_path+prefix+'_feature_model.h5')
+mapping_x2y.save(output_path+prefix+'_mapping_x2y.h5')
+mapping_y2x.save(output_path+prefix+'_mapping_y2x.h5')
+recon_model.save(output_path+prefix+'_recon_model.h5')
+
+#%%
+from tensorflow.keras.models import load_model
+fm = load_model(output_path+prefix+'_feature_model.h5')
+mx2y = load_model(output_path+prefix+'_mapping_x2y.h5')
+my2x = load_model(output_path+prefix+'_mapping_y2x.h5')
+rm = load_model(output_path+prefix+'_recon_model.h5')
+
+gen = build_generator(init_shape, fm, mx2y, my2x, rm)
+gen.compile(optimizer=optimizer, loss='mse', loss_weights=lws) 
+gen.summary()
+
+save_figure(gen, t1_vis, t2_vis, output_path+prefix+'_check_final_epoch.png')
+
 #%%
 
-ix = Input(shape=init_shape)	
+sys.exit()
+    
+#%%
 
-fx = feature_model(ix)   
 
-#Forward     
-mapping_x2y = build_mapping(init_shape=feature_shape, blocks = forward_blocks)
-mx2y = mapping_x2y(fx)
-rx2y = recon_model(mx2y)
+# hist = paired_generator.fit(x=x, 
+#                           y=y, 
+#                           batch_size=batch_size, 
+#                           epochs=epochs, 
+#                           shuffle=True,
+#                           callbacks=callbacks,
+#                           validation_data=(x_test,y_test))
 
-model = Model(inputs=[ix], 
-              outputs=[rx2y])
+# #Save hist figure
+# plt.figure(figsize=(4,4))
 
-model.compile(optimizer=optimizer, loss='mse') 
+# plt.plot(hist.history['loss'])
+# plt.plot(hist.history['model_1_loss'])
+# for i in range(7):
+#   plt.plot(hist.history['model_1_'+str(i+1)+'_loss'])
 
-model.fit(x=X_train, 
-                          y=Y_train, 
-                          batch_size=batch_size, 
-                          epochs=epochs, 
-                          shuffle=True)
+# plt.ylabel('training loss')  
+# plt.xlabel('epochs')
+# plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'], loc='upper right')
+# plt.savefig(output_path+prefix+'_loss_training.png',dpi=150, bbox_inches='tight')
+# plt.close()
+
+# plt.figure(figsize=(4,4))
+
+# plt.plot(hist.history['val_loss'])
+# plt.plot(hist.history['val_model_1_loss'])
+# for i in range(7):
+#   plt.plot(hist.history['val_model_1_'+str(i+1)+'_loss'])
+
+# plt.ylabel('validation loss')  
+# plt.xlabel('epochs')
+# plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'], loc='upper right')
+# plt.savefig(output_path+prefix+'_loss_validation.png',dpi=150, bbox_inches='tight')
+# plt.close()
+
+#%%
+sys.exit()
+
+#%%
+
+#%%
+
+
+#%%
+
+# ix = Input(shape=init_shape)	
+
+# fx = feature_model(ix)   
+
+# #Forward     
+# mapping_x2y = build_mapping(init_shape=feature_shape, blocks = forward_blocks)
+# mx2y = mapping_x2y(fx)
+# rx2y = recon_model(mx2y)
+
+# model = Model(inputs=[ix], 
+#               outputs=[rx2y])
+
+# model.compile(optimizer=optimizer, loss='mse') 
+
+# model.fit(x=X_train, 
+#                           y=Y_train, 
+#                           batch_size=batch_size, 
+#                           epochs=epochs, 
+#                           shuffle=True)
 
 #%%
 #https://github.com/parasj/checkmate

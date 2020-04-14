@@ -10,7 +10,7 @@ import nibabel
 import numpy as np
 from sklearn.feature_extraction.image import extract_patches_2d
 
-patch_size = 128
+patch_size = 64
 dataset = 'HCP'
 ratio_training = 0.75
 
@@ -22,7 +22,7 @@ if dataset == 'IXI':
   joblib.dump(PD_2D,home+'/Exp/IXI_PD_2D_'+str(patch_size)+'_training.pkl', compress=True)
 
 if dataset == 'HCP':  
-  n_patches = 25 #per slice 
+  n_patches = 25 #per slice (25 for ps=128)
   
   (T1s,T2s,masks) = get_hcp_4darrays()
   n_images = len(T1s)
