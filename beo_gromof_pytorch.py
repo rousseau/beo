@@ -19,11 +19,11 @@ n_filters = 32
 n_channelsX = 1
 n_channelsY = 1 
 
-n_epochs = 1
+n_epochs = 3
 n_layers = 10
 batch_size = 32  
 
-shared_blocks = 1
+shared_blocks = 0
 reversible_mapping = 0
 backward_order = 1
 
@@ -313,6 +313,19 @@ print('net            -- number of trainable parameters : '+str( sum(p.numel() f
 mse = torch.nn.functional.mse_loss
 optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
 
+#%%
+
+#Using hook to get activation at different steps of the mapping x to y
+activation = {}
+def get_activation(name):
+  def hook(model, input, output):
+    activation[name] = output.detach()
+  return hook
+
+for l in range(n_layers):
+  net.mapping_x_to_y.blocks[l].register_forward_hook(get_activation('block'+str(l)))
+
+
 # %%
 
 if torch.cuda.device_count() > 1:
@@ -354,6 +367,10 @@ n = 10
 step = (int)(n_testing_samples / n)
 t1_vis = torch.Tensor(X_test[0:n*step:step,:,:,:]).to(device)
 t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
+
+norm_velocity = np.zeros((n_layers, n_epochs))
+
+norm_gradient_velocity = np.zeros((n_layers, n_epochs))
 
 for epoch in range(n_epochs):
 
@@ -406,8 +423,9 @@ for epoch in range(n_epochs):
 
       pbar.update(x.shape[0])
       
+
+    net.eval()  
     # print('\nComputing validation loss...')  
-    # net.eval()
     # for (x,y) in testloader:
     #   x, y = x.to(device), y.to(device)
 
@@ -424,7 +442,72 @@ for epoch in range(n_epochs):
 
     #   valid_loss += loss.item() * x.shape[0]
 
-      
+    print('\nComputing norm velocity...')  
+    for (x,y) in testloader:
+      x, y = x.to(device), y.to(device)
+      rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = net(x,y)
+ 
+      for l in range(n_layers):
+        act = activation['block'+str(l)].cpu().numpy()
+        current_max = np.max(np.linalg.norm(act.reshape((act.shape[0],-1)), ord=np.inf,axis=1))
+        norm_velocity[l,epoch] = np.maximum(current_max, norm_velocity[l,epoch])
+
+        
+
+        var_x = torch.autograd.Variable(x, requires_grad=True)  
+        fx_tmp = feature_net(var_x)
+        m_tmp = mapping_model(forward_blocks[:(l+1)]).to(device)
+        mx = m_tmp(fx_tmp)
+
+        #Provide same result as using hook -> good !
+        #act = mx.cpu().detach().numpy()
+        #current_max = np.max(np.linalg.norm(act.reshape((act.shape[0],-1)), ord=np.inf,axis=1))
+        #norm_velocity2[l,epoch] = np.maximum(current_max, norm_velocity2[l,epoch])
+
+        gradients = torch.autograd.grad(outputs=mx, inputs=var_x,
+                                        grad_outputs=torch.ones(mx.size()).cuda(0) if use_cuda else torch.ones(
+                                  mx.size()),
+                              create_graph=True, retain_graph=True, only_inputs=True)[0].cpu().detach().numpy()
+
+        
+
+        # gradients = torch.autograd.grad(outputs=var_act, inputs=var_x,
+        #                                 grad_outputs=torch.ones(var_act.size()).cuda(3) if use_cuda else torch.ones(
+        #                           var_act.size()),
+        #                       create_graph=True, retain_graph=True, only_inputs=True)[0].cpu().numpy()
+        current_max = np.max(np.linalg.norm(act.reshape((gradients.shape[0],-1)), ord=np.inf,axis=1))
+        norm_gradient_velocity[l,epoch] = np.maximum(current_max, norm_gradient_velocity[l,epoch])
+
+
+
+    plt.figure(figsize=(4,4))
+    
+    for i in range(norm_velocity.shape[0]):
+      plt.plot(norm_velocity[i,0:epoch+1])
+    plt.savefig(output_path+prefix+'_norm_velocity.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(4,4))    
+    im = plt.imshow(norm_velocity,cmap=plt.cm.gray,
+                 interpolation="nearest")
+    plt.colorbar(im)
+    plt.savefig(output_path+prefix+'_norm_velocity_matrix.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(4,4))
+    
+    for i in range(norm_gradient_velocity.shape[0]):
+      plt.plot(norm_gradient_velocity[i,0:epoch+1])
+    plt.savefig(output_path+prefix+'_norm_gradient_velocity.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(4,4))
+    
+    im = plt.imshow(norm_gradient_velocity,cmap=plt.cm.gray,
+                 interpolation="nearest")
+    plt.colorbar(im)
+    plt.savefig(output_path+prefix+'_norm_gradient_velocity_matrix.png',dpi=150, bbox_inches='tight')
+    plt.close()
 
       
     [a,b,c,d,e,f,g,h] = net(t1_vis,t2_vis)  
