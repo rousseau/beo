@@ -11,42 +11,11 @@ import torch
 from tqdm import tqdm
 import sys
 
-
-dataset = 'HCP' #HCP or IXI or Bazin  
-patch_size = 64 
-
-n_filters = 32
-n_channelsX = 1
-n_channelsY = 1 
-
-n_epochs = 3
-n_layers = 10
-batch_size = 32  
-
-shared_blocks = 0
-reversible_mapping = 0
-backward_order = 1
-
-output_path = home+'/Sync/Experiments/'+dataset+'/'
-prefix = 'gromof'
-
-lambda_direct = 1
-lambda_cycle = 1
-lambda_id = 0.1
-lambda_ae = 1
-
-prefix += '_epochs_'+str(n_epochs)
-prefix += '_nl_'+str(n_layers)
-prefix += '_nf_'+str(n_filters)
-prefix += '_loss_'+str(lambda_direct)+'_'+str(lambda_cycle)+'_'+str(lambda_id)+'_'+str(lambda_ae)
-prefix += '_shared_'+str(shared_blocks)
-prefix += '_rev_'+str(reversible_mapping)
-prefix += '_bo_'+str(backward_order)
-
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 
-#%%
+dataset = 'HCP' #HCP or IXI or Bazin  
+patch_size = 64 
 
 if dataset == 'IXI':  
   X_train = joblib.load(home+'/Exp/IXI_T1_2D_'+str(patch_size)+'_training.pkl')
@@ -70,7 +39,49 @@ if dataset == 'Bazin':
   Y_train = joblib.load(home+'/Exp/Thio_'+str(patch_size)+'_training.pkl')
   Y_train = np.moveaxis(Y_train,3,1)  
 
+n_training_samples = X_train.shape[0]
+
+n_testing_samples = X_test.shape[0]
+#Take 10 examples for visualization
+n = 10
+step = (int)(n_testing_samples / n)
+t1_vis = torch.Tensor(X_test[0:n*step:step,:,:,:]).to(device)
+t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
+
 #%%
+n_filters = 8
+n_channelsX = 1
+n_channelsY = 1 
+
+n_epochs = 3
+n_layers = 10
+batch_size = 32  
+
+shared_blocks = 0
+reversible_mapping = 0
+backward_order = 1
+
+output_path = home+'/Sync/Experiments/'+dataset+'/'
+prefix = 'gromof'
+
+lambda_direct = 1
+lambda_cycle = 1
+lambda_id = 0.1
+lambda_ae = 1
+
+lambda_v = 1
+
+prefix += '_epochs_'+str(n_epochs)
+prefix += '_nl_'+str(n_layers)
+prefix += '_nf_'+str(n_filters)
+prefix += '_loss_'+str(lambda_direct)+'_'+str(lambda_cycle)+'_'+str(lambda_id)+'_'+str(lambda_ae)+'_'+str(lambda_v)
+prefix += '_shared_'+str(shared_blocks)
+prefix += '_rev_'+str(reversible_mapping)
+prefix += '_bo_'+str(backward_order)
+
+#%%
+
+
 
 def show_patches(patch_list,titles, filename):
 
@@ -326,17 +337,8 @@ for l in range(n_layers):
   net.mapping_x_to_y.blocks[l].register_forward_hook(get_activation('block'+str(l)))
 
 
-# %%
 
-if torch.cuda.device_count() > 1:
-  print("Let's use", torch.cuda.device_count(), "GPUs!")
-  net = torch.nn.DataParallel(net)
-  # feature_net = torch.nn.DataParallel(feature_net)
-  # mx2y_net = torch.nn.DataParallel(mx2y_net)
-  # my2x_net = torch.nn.DataParallel(my2x_net)
-  # recon_net = torch.nn.DataParallel(recon_net)
-  # batch_size *= torch.cuda.device_count()
-
+#%%
 trainset = torch.utils.data.TensorDataset(torch.Tensor(X_train), torch.Tensor(Y_train))
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
                                           shuffle=True, num_workers=2)
@@ -348,8 +350,186 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
 
   
 #%%
+#from https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
+from matplotlib.lines import Line2D
+
+def plot_grad_flow(named_parameters):
+    '''Plots the gradients flowing through different layers in the net during training.
+    Can be used for checking for possible gradient vanishing / exploding problems.
+    
+    Usage: Plug this function in Trainer class after loss.backwards() as 
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    ave_grads = []
+    max_grads= []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+            max_grads.append(p.grad.abs().max())
+    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    #plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.ylim(bottom = 0, top=1) # zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.legend([Line2D([0], [0], color="c", lw=4),
+                Line2D([0], [0], color="b", lw=4),
+                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+    print(layers)
+    
+#%%
+class intermediate_mapping_model(torch.nn.Module):
+  def __init__(self, feature_model, mapping_model):
+    super(intermediate_mapping_model, self).__init__()   
+    self.feature_model = feature_model
+    self.mapping_model = mapping_model
+
+  def forward(self,x):
+    fx = self.feature_model(x)
+    mx2y = self.mapping_model(fx)
+
+    return mx2y
+
+intermediate_models = []
+for l in range(n_layers):
+  intermediate_models.append( intermediate_mapping_model(feature_net,mapping_model(forward_blocks[:(l+1)])).to(device) )
+
+#%%
 
 
+def norm_v():
+  norm_velocity = 0
+  for l in range(n_layers):
+    act = activation['block'+str(l)].cpu().numpy()
+    current_max = np.max(np.linalg.norm(act.reshape((act.shape[0],-1)), ord=np.inf,axis=1))
+    norm_velocity = np.maximum(current_max, norm_velocity)
+  return norm_velocity  
+
+def norm_Dv(x):
+  norm_gradient_velocity = 0
+  var_x = torch.autograd.Variable(x, requires_grad=True)  
+  fx_tmp = feature_net(var_x)
+  for l in range(n_layers):  
+    m_tmp = mapping_model(forward_blocks[:(l+1)]).to(device)
+    mx = m_tmp(fx_tmp)
+  
+    gradients = torch.autograd.grad(outputs=mx, inputs=var_x,
+                                    grad_outputs=torch.ones(mx.size()).to(device),
+                          create_graph=True, retain_graph=True, only_inputs=True)[0].cpu().detach().numpy()
+    
+    current_max = np.max(np.linalg.norm(gradients.reshape((gradients.shape[0],-1)), ord=np.inf,axis=1))
+    norm_gradient_velocity = np.maximum(current_max, norm_gradient_velocity)
+  return norm_gradient_velocity
+
+def norm_inf_v(x):
+  norm_velocity = torch.Tensor([0]).to(device)
+  norm_gradient_velocity = torch.Tensor([0]).to(device)
+
+  var_x = torch.autograd.Variable(x, requires_grad=True)  
+  #fx_tmp = feature_net(var_x)
+  
+  for l in range(n_layers):  
+    #m_tmp = mapping_model(forward_blocks[:(l+1)]).to(device)
+    #mx = m_tmp(fx_tmp)
+    mx = intermediate_models[l](var_x)
+   
+    current_max = torch.max( torch.norm( mx.view(mx.shape[0],-1), p=np.inf, dim=1 ) )
+    norm_velocity = torch.max(current_max, norm_velocity)
+    
+    #mx_np = mx.cpu().detach().numpy()
+    #current_max = np.max(np.linalg.norm(mx_np.reshape((mx_np.shape[0],-1)), ord=np.inf,axis=1))
+    #norm_velocity = np.maximum(current_max, norm_velocity)
+  
+    gradients = torch.autograd.grad(outputs=mx, inputs=var_x,
+                                    grad_outputs=torch.ones(mx.size()).to(device),
+                          create_graph=True, retain_graph=True, only_inputs=True)[0]#.cpu().detach().numpy()
+    
+    current_max = torch.max( torch.norm( gradients.view(gradients.shape[0],-1), p=np.inf, dim=1 ) )
+    norm_gradient_velocity = torch.max(current_max, norm_gradient_velocity)
+    
+    #current_max = np.max(np.linalg.norm(gradients.reshape((gradients.shape[0],-1)), ord=np.inf,axis=1))
+    #norm_gradient_velocity = np.maximum(current_max, norm_gradient_velocity)
+    
+  return norm_velocity + norm_gradient_velocity
+
+#%%
+#Just x to y
+lambda_direct = 0
+lambda_v = 1
+batch_size = 128
+
+class generator_x2y_model(torch.nn.Module):
+  def __init__(self, feature_model, mapping_x_to_y, reconstruction_model):
+    super(generator_x2y_model, self).__init__()   
+    self.feature_model = feature_model
+    self.mapping_x_to_y = mapping_x_to_y
+    self.reconstruction_model = reconstruction_model
+
+  def forward(self,x,y):
+    fx = self.feature_model(x)
+    mx2y = self.mapping_x_to_y(fx)
+    rx2y = self.reconstruction_model(mx2y)
+
+    return rx2y
+
+net_x2y = generator_x2y_model(feature_net, mx2y_net, recon_net).to(device)
+net_x2y = torch.nn.DataParallel(net_x2y)
+
+for epoch in range(n_epochs):
+  training_loss = 0.0
+  training_loss1 = 0    
+  training_loss_nv = 0
+
+  with tqdm(total = n_training_samples, desc=f'Epoch {epoch + 1}', file=sys.stdout) as pbar:
+
+    net.train()
+    for (x,y) in trainloader:
+      x, y = x.to(device), y.to(device)
+
+      optimizer.zero_grad()
+
+      rx2y = net_x2y(x,y)
+      loss1 = mse(rx2y, y)
+      
+      loss_nv = norm_inf_v(x)
+      loss = lambda_direct * loss1 + lambda_v * loss_nv
+      
+      loss.backward()
+ 
+      optimizer.step()
+
+      training_loss += loss.item() * x.shape[0]
+      training_loss1 += loss1.item() * x.shape[0]
+
+      training_loss_nv += loss_nv.item() * x.shape[0]   
+      
+
+      pbar.update(x.shape[0])
+
+  print('\n -> epoch '+str(epoch + 1)+', training loss : '+str(training_loss / n_training_samples))
+
+  print(' -> epoch '+str(epoch + 1)+', training loss 1: '+str(training_loss1 / n_training_samples))
+
+  print(' -> epoch '+str(epoch + 1)+', training loss nv: '+str(training_loss_nv / n_training_samples))
+
+# %%
+
+if torch.cuda.device_count() > 1:
+  print("Let's use", torch.cuda.device_count(), "GPUs!")
+  net = torch.nn.DataParallel(net)
+  #feature_net = torch.nn.DataParallel(feature_net)
+  #mx2y_net = torch.nn.DataParallel(mx2y_net)
+  # my2x_net = torch.nn.DataParallel(my2x_net)
+  # recon_net = torch.nn.DataParallel(recon_net)
+  # batch_size *= torch.cuda.device_count()
+
+#%%
 lw1 = lambda_direct #loss weight direct mapping
 lw2 = lambda_direct #loss weight inverse mapping
 lw3 = lambda_id #loss weight identity mapping on x 
@@ -359,18 +539,11 @@ lw6 = lambda_cycle #loss weight cycle for y
 lw7 = lambda_ae #loss weight autoencoder for x
 lw8 = lambda_ae #loss weight autoencoder for y
 
-n_training_samples = X_train.shape[0]
-
-n_testing_samples = X_test.shape[0]
-#Take 10 examples for visualization
-n = 10
-step = (int)(n_testing_samples / n)
-t1_vis = torch.Tensor(X_test[0:n*step:step,:,:,:]).to(device)
-t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
 
 norm_velocity = np.zeros((n_layers, n_epochs))
 
 norm_gradient_velocity = np.zeros((n_layers, n_epochs))
+
 
 for epoch in range(n_epochs):
 
@@ -385,6 +558,8 @@ for epoch in range(n_epochs):
   training_loss6 = 0  
   training_loss7 = 0  
   training_loss8 = 0  
+  
+  training_loss_nv = 0
   
   reversibility_loss = 0
   
@@ -406,7 +581,14 @@ for epoch in range(n_epochs):
       loss7 = mse(idx2x, x)
       loss8 = mse(idy2y, y)    
       loss = lw1 * loss1 + lw2 * loss2 + lw3 * loss3 + lw4 * loss4 + lw5 * loss5 + lw6 * loss6 + lw7 * loss7 + lw8 * loss8
+      
+      loss_nv = norm_inf_v(x)
+      loss = lambda_direct * loss1 + lambda_v * loss_nv
+      
       loss.backward()
+ 
+      #to check vanishing or exploding gradient
+      #plot_grad_flow(net.named_parameters())
 
       optimizer.step()
 
@@ -420,6 +602,9 @@ for epoch in range(n_epochs):
       training_loss6 += loss6.item() * x.shape[0]
       training_loss7 += loss7.item() * x.shape[0]
       training_loss8 += loss8.item() * x.shape[0]      
+
+      training_loss_nv += loss_nv.item() * x.shape[0]   
+      
 
       pbar.update(x.shape[0])
       
@@ -447,13 +632,13 @@ for epoch in range(n_epochs):
       x, y = x.to(device), y.to(device)
       rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = net(x,y)
  
+  
+ 
       for l in range(n_layers):
         act = activation['block'+str(l)].cpu().numpy()
         current_max = np.max(np.linalg.norm(act.reshape((act.shape[0],-1)), ord=np.inf,axis=1))
         norm_velocity[l,epoch] = np.maximum(current_max, norm_velocity[l,epoch])
-
-        
-
+      
         var_x = torch.autograd.Variable(x, requires_grad=True)  
         fx_tmp = feature_net(var_x)
         m_tmp = mapping_model(forward_blocks[:(l+1)]).to(device)
@@ -465,17 +650,18 @@ for epoch in range(n_epochs):
         #norm_velocity2[l,epoch] = np.maximum(current_max, norm_velocity2[l,epoch])
 
         gradients = torch.autograd.grad(outputs=mx, inputs=var_x,
-                                        grad_outputs=torch.ones(mx.size()).cuda(0) if use_cuda else torch.ones(
-                                  mx.size()),
+                                        grad_outputs=torch.ones(mx.size()).to(device),
                               create_graph=True, retain_graph=True, only_inputs=True)[0].cpu().detach().numpy()
 
         
-
+        # var_act = torch.autograd.Variable(activation['block'+str(l)], requires_grad=True)
         # gradients = torch.autograd.grad(outputs=var_act, inputs=var_x,
-        #                                 grad_outputs=torch.ones(var_act.size()).cuda(3) if use_cuda else torch.ones(
+        #                                 grad_outputs=torch.ones(var_act.size()).cuda(0) if use_cuda else torch.ones(
         #                           var_act.size()),
-        #                       create_graph=True, retain_graph=True, only_inputs=True)[0].cpu().numpy()
-        current_max = np.max(np.linalg.norm(act.reshape((gradients.shape[0],-1)), ord=np.inf,axis=1))
+        #                       create_graph=True, retain_graph=True, only_inputs=True, allow_unused=True)[0].cpu().numpy()
+        
+        
+        current_max = np.max(np.linalg.norm(gradients.reshape((gradients.shape[0],-1)), ord=np.inf,axis=1))
         norm_gradient_velocity[l,epoch] = np.maximum(current_max, norm_gradient_velocity[l,epoch])
 
 
@@ -544,6 +730,8 @@ for epoch in range(n_epochs):
   print(' -> epoch '+str(epoch + 1)+', training loss 6: '+str(training_loss6 / n_training_samples))
   print(' -> epoch '+str(epoch + 1)+', training loss 7: '+str(training_loss7 / n_training_samples))
   print(' -> epoch '+str(epoch + 1)+', training loss 8: '+str(training_loss8 / n_training_samples))
+
+  print(' -> epoch '+str(epoch + 1)+', training loss nv: '+str(training_loss_nv / n_training_samples))
 
   print(' -> epoch '+str(epoch + 1)+', reversibility loss : '+str(reversibility_loss / n_training_samples))
 
