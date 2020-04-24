@@ -50,7 +50,7 @@ t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
 
 #%%
 n_filters = 32
-n_channelsX = 1
+n_channelsX = 1 
 n_channelsY = 1 
 
 n_epochs = 5       # epochs per multiscale step
@@ -70,8 +70,8 @@ lambda_x2y = 1
 lambda_y2x = 0
 lambda_cycle = 0
 lambda_id = 0
-lambda_ae = 1
-lambda_v = 0.1
+lambda_ae = 0
+lambda_v = 0
 
 prefix += '_epochs_'+str(n_epochs)
 prefix += '_nl'
@@ -442,6 +442,34 @@ def norm_inf_v(feature_model,forward_blocks, x, along_trajectory = True, only_ac
   return norm_velocity + norm_gradient_velocity
 
 #%%
+def compute_lipschitz_conv(weights, n_iter = 50):
+  L = 0
+  n_filters = weights.shape[1]
+  n = 20
+  u = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+  v = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+
+  conv_model = torch.nn.Sequential(
+    torch.nn.Conv2d(n_filters, n_filters, kernel_size=3, padding=1, stride=1, bias=False),
+  ).to(device)
+  conv_model.state_dict()['0.weight'].copy_(weights)
+
+  for i in range (n_iter):
+    
+    WTu = conv_model(torch.flip(torch.flip(u,dims=[2]),dims=[3]))
+    v_new = WTu / torch.norm(WTu.flatten())
+    v = v_new
+  
+    Wv = conv_model(v)
+    u_new = Wv / torch.norm(Wv.flatten())
+    u = u_new
+    
+  Wv = conv_model(v)
+  L = torch.mm( u.flatten().reshape(1,-1), Wv.flatten().reshape(-1,1))
+  
+  return L
+
+#%%
 # #Just x to y
 # lambda_direct = 0
 # lambda_v = 1
@@ -517,7 +545,10 @@ lw['normv'] = lambda_v  #loss weight for norm v
 max_epochs = n_epochs * len(n_layers_list)
 norm_velocity = np.zeros( (n_layers , max_epochs) )
 norm_gradient_velocity = np.zeros( (n_layers, max_epochs) )  
+L = np.zeros( (len(block_x2y_list) * len(block_x2y_list[0] ), max_epochs) )
+Lmax = []
 
+#%%
 
 iteration = 0
 
@@ -641,6 +672,42 @@ for nl in range(len(n_layers_list)):
     plt.xlabel('epochs')
     plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$'], loc='upper right')
     plt.savefig(output_path+prefix+'_loss_training.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print('Computing Lipschitz constants')
+    i=0
+    for blocks in block_x2y_list:
+      for block in blocks:  
+        cst = 1
+        for layername in block.state_dict().keys():
+          if 'conv' in layername:
+            weights = block.state_dict()[layername] #torch tensor
+            tmp = compute_lipschitz_conv(weights, n_iter = 5)
+            cst *= tmp
+        L[i,epoch] = cst    
+        i = i+1
+    Lmax.append(np.max(L[:,epoch]))    
+    print('Max Lipschitz value : '+str( np.max(L[:,epoch]) ))
+    plt.figure()
+    plt.plot(Lmax)
+    plt.legend(['Max Lipschitz value'])
+    plt.savefig(output_path+prefix+'_lipschitzmax.png',dpi=150, bbox_inches='tight')
+    plt.close()   
+
+    plt.figure(figsize=(4,4))
+    
+    for i in range(L.shape[0]):
+      plt.plot(L[i,0:epoch+1])
+    plt.savefig(output_path+prefix+'_lipschitz.png',dpi=150, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(4,4))
+    
+    im = plt.imshow(L,cmap=plt.cm.gray, 
+                 interpolation="nearest",
+                 vmin=0,vmax=3)
+    plt.colorbar(im)
+    plt.savefig(output_path+prefix+'_lipschitz_matrix.png',dpi=150, bbox_inches='tight')
     plt.close()
 
     print('\n Validation ')
