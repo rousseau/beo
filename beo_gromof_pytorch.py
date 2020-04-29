@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 #%%
-import joblib
+import joblib 
 from os.path import expanduser
 home = expanduser("~")
 import numpy as np
@@ -54,25 +54,25 @@ n_channelsX = 1
 n_channelsY = 1 
 
 batch_size = 16 
-n_epochs = 3       # epochs per multiscale step
+n_epochs = 2       # epochs per multiscale step
 
 n_layers_list = [8]#,2,4,8,16]#[1,2,4,8,16,32,64]
 n_layers = np.max(n_layers_list)           #number of layers for the numerical integration scheme (ResNet)
 
 reversible_mapping = 0
 shared_blocks = 0
-backward_order = 1
+backward_order = 1   #Behrmann et al. ICML 2019 used 100
 scaling_weights = 0
 
 output_path = home+'/Sync/Experiments/'+dataset+'/'
 prefix = 'gromof'
 
 lambda_x2y = 1
-lambda_y2x = 1
-lambda_cycle = 1
-lambda_id = 1 
+lambda_y2x = 0
+lambda_cycle = 0
+lambda_id = 0 
 lambda_ae = 1
-lambda_v = 0
+lambda_v = 1
 
 prefix += '_epochs_'+str(n_epochs)
 prefix += '_nl'
@@ -165,17 +165,17 @@ class block_mapping_model(torch.nn.Module):
     self.tanh = torch.nn.Tanh()
     self.conv1 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)    
     self.conv2 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)    
-    self.conv3 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)
+    #self.conv3 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)
     torch.nn.init.xavier_normal_(self.conv1.weight)
     torch.nn.init.xavier_normal_(self.conv2.weight)
-    torch.nn.init.xavier_normal_(self.conv3.weight)
+    #torch.nn.init.xavier_normal_(self.conv3.weight)
     
   def forward(self,x):
     x = self.conv1(x)
     x = self.relu(x)
     x = self.conv2(x)
-    x = self.relu(x)
-    x = self.conv3(x)
+    #x = self.relu(x)
+    #x = self.conv3(x)
     x = self.tanh(x)
     return x
 
@@ -316,10 +316,6 @@ else:
     forward_blocks.append(forward_block)
     backward_blocks.append(backward_block)
     block_x2y_list.append(block_x2y)
-
-#mx2y_net = mapping_model(forward_blocks).to(device)
-#my2x_net = mapping_model(forward_blocks).to(device)
-#net = generator_model(feature_net, mx2y_net, my2x_net, recon_net).to(device)
 
 #%%
 
@@ -513,13 +509,9 @@ for nl in range(len(n_layers_list)):
               weights = block.state_dict()[layername] #torch tensor
               block.state_dict()[layername].copy_(weights*scaling)
 
-  #Build nets
-  # intermediate_models = []
-  # for l in range(n_layers):
-  #   intermediate_models.append( intermediate_mapping_model(feature_net,mapping_model(forward_blocks[:(l+1)])).to(device) )
-
+  
   mx2y_net = mapping_model(forward_blocks[0:n_blocks]).to(device)
-  my2x_net = mapping_model(forward_blocks[0:n_blocks]).to(device)
+  my2x_net = mapping_model(backward_blocks[0:n_blocks]).to(device)
 
   net = generator_model(feature_net, mx2y_net, my2x_net, recon_net).to(device)
 
