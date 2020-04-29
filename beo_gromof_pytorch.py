@@ -52,14 +52,15 @@ t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
 n_filters = 32
 n_channelsX = 1 
 n_channelsY = 1 
- 
+
+batch_size = 16 
 n_epochs = 3       # epochs per multiscale step
+
 n_layers_list = [8]#,2,4,8,16]#[1,2,4,8,16,32,64]
 n_layers = np.max(n_layers_list)           #number of layers for the numerical integration scheme (ResNet)
-batch_size = 16
 
-shared_blocks = 0
 reversible_mapping = 0
+shared_blocks = 0
 backward_order = 1
 scaling_weights = 0
 
@@ -128,7 +129,7 @@ class feature_model(torch.nn.Module):
     super(feature_model, self).__init__()
     self.relu = torch.nn.ReLU()
     self.tanh = torch.nn.Tanh()
-    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=2)
+    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=2, bias=True)
     self.convblock = conv_relu_block_2d(out_channels,out_channels)
     torch.nn.init.xavier_uniform_(self.conv1.weight)
 
@@ -146,7 +147,7 @@ class recon_model(torch.nn.Module):
     #self.up = torch.nn.ConvTranspose2d(in_channels,in_channels,kernel_size=2, stride=2)
     self.up = torch.nn.Upsample(scale_factor=2, mode="bilinear")
     self.convblock = conv_relu_block_2d(in_channels,in_channels)
-    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=1)    
+    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=1, bias=True)    
     torch.nn.init.xavier_uniform_(self.conv1.weight)
     
   def forward(self, x):
@@ -207,7 +208,7 @@ class backward_block_model(torch.nn.Module):
     if len(self.block) == 1:
 
       z = x
-      for i in range(self.order):
+      for i in range(self.order): #fixed point iterations
         y = self.block[0](z)
         z = torch.sub(x,y)
       x = z
@@ -245,10 +246,12 @@ class generator_model(torch.nn.Module):
     fx = self.feature_model(x)
     fy = self.feature_model(y)
 
+    #Forward     
     mx2y = self.mapping_x_to_y(fx)
-    my2x = self.mapping_y_to_x(fy)
-
     rx2y = self.reconstruction_model(mx2y)
+
+    #Backward
+    my2x = self.mapping_y_to_x(fy)
     ry2x = self.reconstruction_model(my2x)
 
     #Identity mapping constraints
@@ -276,8 +279,6 @@ class generator_model(torch.nn.Module):
 
 
 #%%
-feature_net = feature_model(n_channelsX, n_filters).to(device)
-recon_net = recon_model(n_filters, n_channelsY).to(device)
 
 forward_blocks = []
 backward_blocks= []
@@ -477,6 +478,9 @@ L = np.zeros( (len(block_x2y_list) * len(block_x2y_list[0] ), max_epochs) )
 Lmax = []
 
 #%%
+
+feature_net = feature_model(n_channelsX, n_filters).to(device)
+recon_net = recon_model(n_filters, n_channelsY).to(device)
 
 iteration = 0
 
