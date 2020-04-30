@@ -53,8 +53,8 @@ n_filters = 32
 n_channelsX = 1 
 n_channelsY = 1 
 
-batch_size = 16 
-n_epochs = 2       # epochs per multiscale step
+batch_size = 64 
+n_epochs = 5       # epochs per multiscale step
 
 n_layers_list = [8]#,2,4,8,16]#[1,2,4,8,16,32,64]
 n_layers = np.max(n_layers_list)           #number of layers for the numerical integration scheme (ResNet)
@@ -72,7 +72,7 @@ lambda_y2x = 0
 lambda_cycle = 0
 lambda_id = 0 
 lambda_ae = 1
-lambda_v = 1
+lambda_v = 0.1
 
 prefix += '_epochs_'+str(n_epochs)
 prefix += '_nl'
@@ -391,12 +391,54 @@ def plot_grad_flow(named_parameters):
 
 #%%
 
+def loss_lipschitz(block_x2y_list,n_filters):
+  #The loss is defined as the sum of Lipschitz constant over all the mapping blocks
+  Lipschitz_cst = torch.Tensor([0]).to(device)
+  n_iter = 5
+
+  for blocks in block_x2y_list:
+      for block in blocks:  
+
+        cst = torch.Tensor([1]).to(device)
+        j = 1
+        for layername in block.state_dict().keys():
+          if 'conv' in layername:
+            eval('block.conv'+str(j)).weight.requires_grad = True
+            conv_model = torch.nn.Sequential(
+              eval('block.conv'+str(j)),
+            ).to(device)
+            u = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+            v = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+
+            for _ in range (n_iter):
+              
+              WTu = conv_model(torch.flip(torch.flip(u,dims=[2]),dims=[3]))
+              v_new = WTu / torch.norm(WTu.flatten())
+              v = v_new
+            
+              Wv = conv_model(v)
+              u_new = Wv / torch.norm(Wv.flatten())
+              u = u_new
+              
+            Wv = conv_model(v)
+            cst = cst * torch.mm( u.flatten().reshape(1,-1), Wv.flatten().reshape(-1,1)).reshape(1)
+
+            j = j+1
+
+        Lipschitz_cst = Lipschitz_cst + cst
+  return Lipschitz_cst[0]
+
+def loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x):
+  norm_velocity, norm_gradient_velocity = norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = True, only_gradient = False)
+  norm_Dv = loss_lipschitz(block_x2y_list,n_filters)
+  return torch.sum(norm_velocity) + norm_Dv
+
 def loss_norm_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = False, only_gradient = False):
   norm_velocity, norm_gradient_velocity = norm_inf_v(feature_net,forward_blocks, x, along_trajectory, only_activation, only_gradient)
   return torch.sum((norm_velocity + norm_gradient_velocity)**2)
   #return torch.max(norm_velocity) + torch.max(norm_gradient_velocity)
 
-def norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = False, only_gradient = False):
+def norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = True, only_gradient = False):
 
   n = len(forward_blocks)
   norm_velocity = torch.zeros([n]).to(device)
@@ -413,8 +455,8 @@ def norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_acti
     
     if only_activation is False:
       gradients = torch.autograd.grad(outputs=mx, inputs=fx,
-                                      grad_outputs=torch.ones(mx.size()).to(device),
-                            create_graph=True, retain_graph=True, only_inputs=True)[0]#.cpu().detach().numpy()
+                                      grad_outputs=torch.ones(mx.size()).to(device), # ?
+                            create_graph=True, retain_graph=True, only_inputs=True)[0]
       
       norm_gradient_velocity[l] = torch.max( torch.norm( gradients.view(gradients.shape[0],-1), p=np.inf, dim=1 ) )
     
@@ -551,7 +593,7 @@ for nl in range(len(n_layers_list)):
         for k in lw.keys(): #compute only loss whose weight is non zero
           if lw[k] > 0:
             if k == 'normv':
-              loss[k] = loss_norm_v(feature_net,forward_blocks[0:n_blocks],x)
+              loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)              
             else:
               loss[k] = mse(eval(k),eval(k[-1]))
           else:
@@ -676,7 +718,7 @@ for nl in range(len(n_layers_list)):
       loss = {}
       for k in lw.keys(): #compute only loss whose weight is non zero
         if k == 'normv':
-          loss[k] = loss_norm_v(feature_net,forward_blocks[0:n_blocks],x)
+          loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)#loss_norm_v(feature_net,forward_blocks[0:n_blocks],x)
         else:
           loss[k] = mse(eval(k),eval(k[-1]))
 
