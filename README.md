@@ -1,2 +1,1 @@
-# beo
- 
+Beo, a living repository.
