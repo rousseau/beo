@@ -3,7 +3,7 @@
 
 import joblib
 from os.path import expanduser
-home = expanduser("~")
+home = expanduser("~") 
 
 import tensorflow as tf
 import numpy as np 
@@ -45,7 +45,7 @@ if dataset == 'Bazin':
 #%%
 
 multigpu = 0
-mem_limit = 0
+mem_limit = 1
 use_fp16 = 0 
 
 #Limited memory growth -> allows to check the memory required in each GPU
@@ -74,7 +74,7 @@ n_channelsX = 1
 n_channelsY = 1 
 
 batch_size = 16  
-epochs = 3#8       #n_epochs per learning steps
+epochs = 2#8       #n_epochs per learning steps
 
 #Mapping parameters
 n_layers_list = [8]#[1,2,4,8,16,32,64]

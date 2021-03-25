@@ -13,6 +13,7 @@ import sys
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
+print(device)
 
 dataset = 'HCP' #HCP or IXI or Bazin  
 patch_size = 64 
@@ -52,27 +53,28 @@ t2_vis = torch.Tensor(Y_test[0:n*step:step,:,:,:]).to(device)
 n_filters = 32
 n_channelsX = 1 
 n_channelsY = 1 
-
-batch_size = 64 
+ 
+batch_size = 32 
 n_epochs = 5       # epochs per multiscale step
 
-n_layers_list = [8]#,2,4,8,16]#[1,2,4,8,16,32,64]
+n_layers_list = [2,4,8,16]#[1,2,4,8,16,32,64]
 n_layers = np.max(n_layers_list)           #number of layers for the numerical integration scheme (ResNet)
 
-reversible_mapping = 0
+reversible_mapping = 0 
 shared_blocks = 0
 backward_order = 1   #Behrmann et al. ICML 2019 used 100
-scaling_weights = 0
+scaling_weights = 1 
 
 output_path = home+'/Sync/Experiments/'+dataset+'/'
 prefix = 'gromof'
 
 lambda_x2y = 1
-lambda_y2x = 0
+lambda_y2x = 1  
 lambda_cycle = 0
-lambda_id = 0 
-lambda_ae = 1
-lambda_v = 0.1
+lambda_id = 1 
+lambda_ae = 1   
+lambda_v  = 1 
+lambda_Dv = 1 
 
 prefix += '_epochs_'+str(n_epochs)
 prefix += '_nl'
@@ -85,153 +87,12 @@ prefix += '_rev_'+str(reversible_mapping)
 prefix += '_bo_'+str(backward_order)
 
 #%%
-
-def show_patches(patch_list,titles, filename):
-
-  n_rows = patch_list[0].shape[0]
-  n_cols = len(patch_list)
-
-  vmin = -2 
-  vmax = 2
-  plt.figure(figsize=(2. * n_cols, 2. * n_rows))
-  for i in range(n_rows):
-    for j in range(n_cols):
-      sub = plt.subplot(n_rows, n_cols, i*n_cols+1+j)
-      sub.imshow(patch_list[j][i,0,:,:],
-                 cmap=plt.cm.gray,
-                 interpolation="nearest",
-                 vmin=vmin,vmax=vmax)
-      sub.axis('off')
-      if i == 0:
-        sub.set_title(titles[j])
-  plt.axis('off')
-  plt.savefig(filename,dpi=150, bbox_inches='tight')
-  plt.close()
+from beo_visu import show_patches
 
 #%%
 
-class conv_relu_block_2d(torch.nn.Module):
-  def __init__(self, in_channels, out_channels):
-    super(conv_relu_block_2d, self).__init__()
-    self.relu = torch.nn.ReLU()
-    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-    self.conv2 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-
-  def forward(self, x):
-    x = self.conv1(x)
-    x = self.relu(x)
-    x = self.conv2(x)
-    x = self.relu(x)
-    return x
-
-class feature_model(torch.nn.Module):
-  def __init__(self, in_channels, out_channels):
-    super(feature_model, self).__init__()
-    self.relu = torch.nn.ReLU()
-    self.tanh = torch.nn.Tanh()
-    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=2, bias=True)
-    self.convblock = conv_relu_block_2d(out_channels,out_channels)
-    torch.nn.init.xavier_uniform_(self.conv1.weight)
-
-  def forward(self, x):
-    x = self.conv1(x)
-    x = self.relu(x)
-    x = self.convblock(x)
-    x = self.tanh(x)
-    return x  
-
-class recon_model(torch.nn.Module):
-  def __init__(self, in_channels, out_channels):
-    super(recon_model, self).__init__()
-    self.relu = torch.nn.ReLU()
-    #self.up = torch.nn.ConvTranspose2d(in_channels,in_channels,kernel_size=2, stride=2)
-    self.up = torch.nn.Upsample(scale_factor=2, mode="bilinear")
-    self.convblock = conv_relu_block_2d(in_channels,in_channels)
-    self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, stride=1, bias=True)    
-    torch.nn.init.xavier_uniform_(self.conv1.weight)
-    
-  def forward(self, x):
-    x = self.up(x)
-    x = self.relu(x)
-    x = self.convblock(x)
-    x = self.relu(x)
-    x = self.conv1(x)
-    return x  
-
-class block_mapping_model(torch.nn.Module):
-  def __init__(self, in_channels):
-    super(block_mapping_model, self).__init__()
-    self.relu = torch.nn.ReLU()
-    self.tanh = torch.nn.Tanh()
-    self.conv1 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)    
-    self.conv2 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)    
-    #self.conv3 = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, stride=1, bias=False)
-    torch.nn.init.xavier_normal_(self.conv1.weight)
-    torch.nn.init.xavier_normal_(self.conv2.weight)
-    #torch.nn.init.xavier_normal_(self.conv3.weight)
-    
-  def forward(self,x):
-    x = self.conv1(x)
-    x = self.relu(x)
-    x = self.conv2(x)
-    #x = self.relu(x)
-    #x = self.conv3(x)
-    x = self.tanh(x)
-    return x
-
-class forward_block_model(torch.nn.Module):
-  def __init__(self, block):
-    super(forward_block_model, self).__init__()
-    self.block = torch.nn.ModuleList(block)
-
-  def forward(self,x):
-    if len(self.block) == 1:
-      y = self.block[0](x)
-      x = torch.add(x,y)
-    else:
-      x1, x2 = torch.chunk(x, 2, dim=1)
-      xx = self.block[0](x2)
-      y1 = torch.add(x1,xx)
-      xx = self.block[1](y1)
-      y2 = torch.add(x2,xx)
-
-      x = torch.cat([y1, y2], dim=1)
-    return x  
-    
-class backward_block_model(torch.nn.Module):
-  def __init__(self, block,order=1):
-    super(backward_block_model, self).__init__()
-    self.block = torch.nn.ModuleList(block)
-    self.order = order
-
-  def forward(self,x):
-    if len(self.block) == 1:
-
-      z = x
-      for i in range(self.order): #fixed point iterations
-        y = self.block[0](z)
-        z = torch.sub(x,y)
-      x = z
-    else:
-      y1, y2 = torch.chunk(x, 2, dim=1)
-      yy = self.block[1](y1)
-      x2 = torch.sub(y2,yy)
-      yy = self.block[0](x2)
-      x1 = torch.sub(y1,yy)
-      
-      x = torch.cat([x1, x2], dim=1)
-    return x  
-
-class mapping_model(torch.nn.Module):
-  def __init__(self, blocks):
-    super(mapping_model, self).__init__()
-    self.blocks = torch.nn.ModuleList(blocks)
-
-  def forward(self,x):
-    for i in range(len(self.blocks)):
-      x = self.blocks[i](x)
-    return x
-
+from beo_nets import feature_model, recon_model, block_mapping_model, forward_block_model
+from beo_nets import backward_block_model, mapping_model
 
 
 class generator_model(torch.nn.Module):
@@ -294,11 +155,12 @@ if shared_blocks == 1:
     
   forward_block = forward_block_model(block=block_x2y)
   backward_block = backward_block_model(block=block_x2y, order = backward_order)    
-  block_x2y_list.append(block_x2y)
     
   for l in range(n_layers):
     forward_blocks.append(forward_block)
     backward_blocks.append(backward_block)
+    block_x2y_list.append(block_x2y)
+
 
 else:
   for l in range(n_layers):
@@ -344,37 +206,37 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
   
 #%%
 #from https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
-from matplotlib.lines import Line2D
+# from matplotlib.lines import Line2D
 
-def plot_grad_flow(named_parameters):
-    '''Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
+# def plot_grad_flow(named_parameters):
+#     '''Plots the gradients flowing through different layers in the net during training.
+#     Can be used for checking for possible gradient vanishing / exploding problems.
     
-    Usage: Plug this function in Trainer class after loss.backwards() as 
-    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
-    ave_grads = []
-    max_grads= []
-    layers = []
-    for n, p in named_parameters:
-        if(p.requires_grad) and ("bias" not in n):
-            layers.append(n)
-            ave_grads.append(p.grad.abs().mean())
-            max_grads.append(p.grad.abs().max())
-    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
-    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
-    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
-    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
-    plt.xlim(left=0, right=len(ave_grads))
-    #plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
-    plt.ylim(bottom = 0, top=1) # zoom in on the lower gradient regions
-    plt.xlabel("Layers")
-    plt.ylabel("average gradient")
-    plt.title("Gradient flow")
-    plt.grid(True)
-    plt.legend([Line2D([0], [0], color="c", lw=4),
-                Line2D([0], [0], color="b", lw=4),
-                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
-    print(layers)
+#     Usage: Plug this function in Trainer class after loss.backwards() as 
+#     "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+#     ave_grads = []
+#     max_grads= []
+#     layers = []
+#     for n, p in named_parameters:
+#         if(p.requires_grad) and ("bias" not in n):
+#             layers.append(n)
+#             ave_grads.append(p.grad.abs().mean())
+#             max_grads.append(p.grad.abs().max())
+#     plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+#     plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+#     plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+#     plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+#     plt.xlim(left=0, right=len(ave_grads))
+#     #plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+#     plt.ylim(bottom = 0, top=1) # zoom in on the lower gradient regions
+#     plt.xlabel("Layers")
+#     plt.ylabel("average gradient")
+#     plt.title("Gradient flow")
+#     plt.grid(True)
+#     plt.legend([Line2D([0], [0], color="c", lw=4),
+#                 Line2D([0], [0], color="b", lw=4),
+#                 Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+#     print(layers)
     
 #%%
 # class intermediate_mapping_model(torch.nn.Module):
@@ -391,108 +253,83 @@ def plot_grad_flow(named_parameters):
 
 #%%
 
-def loss_lipschitz(block_x2y_list,n_filters):
-  #The loss is defined as the sum of Lipschitz constant over all the mapping blocks
-  Lipschitz_cst = torch.Tensor([0]).to(device)
-  n_iter = 5
+# def power_method_on_jacobian(feature_net,forward_blocks, x, n_iter=5):
+#   n = 10
+#   u = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+#   v = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
 
-  for blocks in block_x2y_list:
-      for block in blocks:  
-
-        cst = torch.Tensor([1]).to(device)
-        j = 1
-        for layername in block.state_dict().keys():
-          if 'conv' in layername:
-            eval('block.conv'+str(j)).weight.requires_grad = True
-            conv_model = torch.nn.Sequential(
-              eval('block.conv'+str(j)),
-            ).to(device)
-            u = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
-            v = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
-
-            for _ in range (n_iter):
-              
-              WTu = conv_model(torch.flip(torch.flip(u,dims=[2]),dims=[3]))
-              v_new = WTu / torch.norm(WTu.flatten())
-              v = v_new
+#   for _ in range (n_iter):
+#     WTu = conv_model(torch.flip(torch.flip(u,dims=[2]),dims=[3]))
+#     v_new = WTu / torch.norm(WTu.flatten())
+#     v = v_new
             
-              Wv = conv_model(v)
-              u_new = Wv / torch.norm(Wv.flatten())
-              u = u_new
+#     Wv = conv_model(v)
+#     u_new = Wv / torch.norm(Wv.flatten())
+#     u = u_new
               
-            Wv = conv_model(v)
-            cst = cst * torch.mm( u.flatten().reshape(1,-1), Wv.flatten().reshape(-1,1)).reshape(1)
+#   Wv = conv_model(v)
+#   return torch.mm( u.flatten().reshape(1,-1), Wv.flatten().reshape(-1,1)).reshape(1)
 
-            j = j+1
-
-        Lipschitz_cst = Lipschitz_cst + cst
-  return Lipschitz_cst[0]
+from beo_lipschitz import block_lipschitz
 
 def loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x):
-  norm_velocity, norm_gradient_velocity = norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = True, only_gradient = False)
-  norm_Dv = loss_lipschitz(block_x2y_list,n_filters)
-  return torch.sum(norm_velocity) + norm_Dv
+  norm_velocity = norm_v(feature_net,forward_blocks, x)
+  norm_Dv = block_lipschitz(block_x2y_list,n_filters)
+  return torch.sum(norm_velocity) + torch.sum(norm_Dv)
 
-def loss_norm_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = False, only_gradient = False):
-  norm_velocity, norm_gradient_velocity = norm_inf_v(feature_net,forward_blocks, x, along_trajectory, only_activation, only_gradient)
-  return torch.sum((norm_velocity + norm_gradient_velocity)**2)
+
+# def loss_norm_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = False, only_gradient = False):
+#   norm_velocity, norm_gradient_velocity = norm_inf_v(feature_net,forward_blocks, x, along_trajectory, only_activation, only_gradient)
+#   return torch.sum((norm_velocity + norm_gradient_velocity)**2)
   #return torch.max(norm_velocity) + torch.max(norm_gradient_velocity)
 
-def norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = True, only_gradient = False):
-
+def norm_v(feature_net,forward_blocks, x):
   n = len(forward_blocks)
   norm_velocity = torch.zeros([n]).to(device)
-  norm_gradient_velocity = torch.zeros([n]).to(device)
 
   var_x = torch.autograd.Variable(x, requires_grad=True)  
   fx = feature_net(var_x)
   
   for l in range(n):  
     mx = forward_blocks[l](fx)
+    vx = mx - fx
+    #Max of the infinity norm of vx, which is the incremental update at each forward block
+    norm_velocity[l] = torch.max( torch.norm( torch.reshape(vx,(mx.shape[0],-1)), p=np.inf, dim=1 ) )    
+    fx = mx
     
-    if only_gradient is False:
-      norm_velocity[l] = torch.max( torch.norm( mx.view(mx.shape[0],-1), p=np.inf, dim=1 ) )
+  return norm_velocity
+
+# def norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = True, only_gradient = False):
+
+#   n = len(forward_blocks)
+#   norm_velocity = torch.zeros([n]).to(device)
+#   norm_gradient_velocity = torch.zeros([n]).to(device)
+
+#   var_x = torch.autograd.Variable(x, requires_grad=True)  
+#   fx = feature_net(var_x)
+  
+#   for l in range(n):  
+#     mx = forward_blocks[l](fx)
     
-    if only_activation is False:
-      gradients = torch.autograd.grad(outputs=mx, inputs=fx,
-                                      grad_outputs=torch.ones(mx.size()).to(device), # ?
-                            create_graph=True, retain_graph=True, only_inputs=True)[0]
+#     if only_gradient is False:
+#       norm_velocity[l] = torch.max( torch.norm( mx.view(mx.shape[0],-1), p=np.inf, dim=1 ) )
+    
+#     if only_activation is False:
+#       gradients = torch.autograd.grad(outputs=mx, inputs=fx,
+#                                       grad_outputs=torch.ones(mx.size()).to(device), # ?
+#                             create_graph=True, retain_graph=True, only_inputs=True)[0]
       
-      norm_gradient_velocity[l] = torch.max( torch.norm( gradients.view(gradients.shape[0],-1), p=np.inf, dim=1 ) )
+#       norm_gradient_velocity[l] = torch.max( torch.norm( gradients.view(gradients.shape[0],-1), p=np.inf, dim=1 ) )
     
-    #if sampling along trajectory otherwise compute only over fx
-    if along_trajectory is True:
-      fx = mx
+#     #if sampling along trajectory otherwise compute only over fx
+#     if along_trajectory is True:
+#       fx = mx
     
-  return norm_velocity, norm_gradient_velocity
+#   return norm_velocity, norm_gradient_velocity
 
 #%%
-def compute_lipschitz_conv(weights, n_iter = 50):
-  L = 0
-  n_filters = weights.shape[1]
-  n = 20
-  u = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
-  v = torch.Tensor(np.random.rand(1,n_filters,n,n)).to(device)
+from beo_lipschitz import compute_lipschitz_conv
 
-  conv_model = torch.nn.Sequential(
-    torch.nn.Conv2d(n_filters, n_filters, kernel_size=3, padding=1, stride=1, bias=False),
-  ).to(device)
-  conv_model.state_dict()['0.weight'].copy_(weights)
-
-  for i in range (n_iter):
-    
-    WTu = conv_model(torch.flip(torch.flip(u,dims=[2]),dims=[3]))
-    v_new = WTu / torch.norm(WTu.flatten())
-    v = v_new
-  
-    Wv = conv_model(v)
-    u_new = Wv / torch.norm(Wv.flatten())
-    u = u_new
-    
-  Wv = conv_model(v)
-  L = torch.mm( u.flatten().reshape(1,-1), Wv.flatten().reshape(-1,1))
-  
-  return L
 
 
 #%%
@@ -506,6 +343,7 @@ lw['ry2x2y'] = lambda_cycle #loss weight cycle for y
 lw['idx2x'] = lambda_ae #loss weight autoencoder for x
 lw['idy2y'] = lambda_ae #loss weight autoencoder for y
 lw['normv'] = lambda_v  #loss weight for norm v
+lw['normdv'] = lambda_Dv  #loss weight for norm Dv
 print('loss weights')
 print(lw)
  
@@ -557,14 +395,14 @@ for nl in range(len(n_layers_list)):
 
   net = generator_model(feature_net, mx2y_net, my2x_net, recon_net).to(device)
 
-#  if torch.cuda.device_count() > 1:
-    #print("Let's use", torch.cuda.device_count(), "GPUs!")
-    #net = torch.nn.DataParallel(net)
-    #feature_net = torch.nn.DataParallel(feature_net)
-    #mx2y_net = torch.nn.DataParallel(mx2y_net)
-    # my2x_net = torch.nn.DataParallel(my2x_net)
-    # recon_net = torch.nn.DataParallel(recon_net)
-    # batch_size *= torch.cuda.device_count()
+  # if torch.cuda.device_count() > 1:
+  #   print("Let's use", torch.cuda.device_count(), "GPUs!")
+  #   net = torch.nn.DataParallel(net)
+  #   feature_net = torch.nn.DataParallel(feature_net)
+  #   mx2y_net = torch.nn.DataParallel(mx2y_net)
+  #   my2x_net = torch.nn.DataParallel(my2x_net)
+  #   recon_net = torch.nn.DataParallel(recon_net)
+  #   batch_size *= torch.cuda.device_count()
 
   print('feature net    -- number of trainable parameters : '+str( sum(p.numel() for p in feature_net.parameters() if p.requires_grad) ))
   print('mapping x to y -- number of trainable parameters : '+str( sum(p.numel() for p in mx2y_net.parameters() if p.requires_grad) ))
@@ -576,7 +414,7 @@ for nl in range(len(n_layers_list)):
   optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
 
   for epoch in range(n_epochs):
-
+    torch.cuda.empty_cache()
     print('\n Training ')
 
     for k in training_loss.keys():
@@ -593,7 +431,10 @@ for nl in range(len(n_layers_list)):
         for k in lw.keys(): #compute only loss whose weight is non zero
           if lw[k] > 0:
             if k == 'normv':
-              loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)              
+              loss[k] = torch.sum( norm_v(feature_net,forward_blocks, x) )
+              #loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)              
+            elif k == 'normdv':
+              loss[k] = torch.sum( block_lipschitz(block_x2y_list,n_filters) )
             else:
               loss[k] = mse(eval(k),eval(k[-1]))
           else:
@@ -601,7 +442,8 @@ for nl in range(len(n_layers_list)):
 
         total_loss = 0
         for k in loss.keys():
-          total_loss += lw[k] * loss[k]
+          if lw[k] > 0:
+            total_loss += lw[k] * loss[k]
               
         total_loss.backward()
 
@@ -626,7 +468,8 @@ for nl in range(len(n_layers_list)):
 
     plt.ylabel('training loss')  
     plt.xlabel('epochs')
-    plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$'], loc='upper right')
+    #plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$'], loc='upper right')
+    plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$','$\|\| Dv \|\|_{1,\infty}$'], loc='upper right')
     plt.savefig(output_path+prefix+'_loss_training.png',dpi=150, bbox_inches='tight')
     plt.close()
 
@@ -666,137 +509,146 @@ for nl in range(len(n_layers_list)):
     plt.savefig(output_path+prefix+'_lipschitz_matrix.png',dpi=150, bbox_inches='tight')
     plt.close()
 
+    #------------------------------------------------------------------------------------
     print('\n Validation ')
     net.eval()  
-
-    [a,b,c,d,e,f,g,h] = net(t1_vis,t2_vis)  
-    show_patches(patch_list=[t1_vis.cpu().detach().numpy(),
-                             t2_vis.cpu().detach().numpy(),
-                             a.cpu().detach().numpy(),
-                             b.cpu().detach().numpy(),
-                             c.cpu().detach().numpy(),
-                             d.cpu().detach().numpy(),
-                             e.cpu().detach().numpy(),
-                             f.cpu().detach().numpy(),
-                             g.cpu().detach().numpy(),
-                             h.cpu().detach().numpy()],
-                 titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
-                 filename=output_path+prefix+'_current'+str(iteration)+'fig_patches.png')
-
-
-    [a,b,c,d,e,f,g,h] = net(t1_vis,t2_vis)  
-    show_patches(patch_list=[t1_vis.cpu().detach().numpy(),
-                             t2_vis.cpu().detach().numpy(),
-                             a.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
-                             b.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
-                             c.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
-                             d.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
-                             e.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
-                             f.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
-                             g.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
-                             h.cpu().detach().numpy() - t2_vis.cpu().detach().numpy()],
-                 titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
-                 filename=output_path+prefix+'_current'+str(iteration)+'fig_error_patches.png')
+    torch.cuda.empty_cache()
+    with torch.no_grad():
+      [a,b,c,d,e,f,g,h] = net(t1_vis,t2_vis)  
+      show_patches(patch_list=[t1_vis.cpu().detach().numpy(),
+                              t2_vis.cpu().detach().numpy(),
+                              a.cpu().detach().numpy(),
+                              b.cpu().detach().numpy(),
+                              c.cpu().detach().numpy(),
+                              d.cpu().detach().numpy(),
+                              e.cpu().detach().numpy(),
+                              f.cpu().detach().numpy(),
+                              g.cpu().detach().numpy(),
+                              h.cpu().detach().numpy()],
+                  titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
+                  filename=output_path+prefix+'_current'+str(iteration)+'fig_patches.png')
 
 
-    for k in validation_loss.keys():
-      validation_loss[k].append(0.0)
+      [a,b,c,d,e,f,g,h] = net(t1_vis,t2_vis)  
+      show_patches(patch_list=[t1_vis.cpu().detach().numpy(),
+                              t2_vis.cpu().detach().numpy(),
+                              a.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
+                              b.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
+                              c.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
+                              d.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
+                              e.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
+                              f.cpu().detach().numpy() - t2_vis.cpu().detach().numpy(),
+                              g.cpu().detach().numpy() - t1_vis.cpu().detach().numpy(),
+                              h.cpu().detach().numpy() - t2_vis.cpu().detach().numpy()],
+                  titles = ['$x$','$y$','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$'],
+                  filename=output_path+prefix+'_current'+str(iteration)+'fig_error_patches.png')
+
+
+      for k in validation_loss.keys():
+        validation_loss[k].append(0.0)
+        
+      for (x,y) in testloader:
+        x, y = x.to(device), y.to(device)
+        fx_tmp = feature_net(x)
+        mx_tmp = mx2y_net(fx_tmp)
+        my_tmp = my2x_net(mx_tmp)
+        validation_loss['reversibility'][-1] += mse(fx_tmp,my_tmp).item() * x.shape[0]
+
+        fy_tmp = feature_net(y)
+        my_tmp = my2x_net(fy_tmp)
+        mx_tmp = mx2y_net(my_tmp)
+        validation_loss['reversibility2'][-1] += mse(fy_tmp,mx_tmp).item() * x.shape[0]
+        
+        rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = net(x,y)
+        loss = {}
+        for k in lw.keys(): #compute only loss whose weight is non zero
+          #if k == 'normv':
+          #  loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)#loss_norm_v(feature_net,forward_blocks[0:n_blocks],x)
+          if k == 'normv':
+            loss[k] = torch.sum( norm_v(feature_net,forward_blocks, x) )
+          elif k == 'normdv':
+            loss[k] = torch.sum( block_lipschitz(block_x2y_list,n_filters) )
+          else:
+            loss[k] = mse(eval(k),eval(k[-1]))
+
+        total_loss = 0
+        for k in loss.keys():
+          total_loss += lw[k] * loss[k]
+              
+        validation_loss['loss'][-1] += total_loss.item() * x.shape[0]
+
+        for k in loss.keys():
+          validation_loss[k][-1] += loss[k].item() * x.shape[0]
+        
+
+      for k in validation_loss.keys():
+        validation_loss[k][-1] /= n_testing_samples
+        print('-> epoch '+str(epoch + 1)+', validation '+str(k)+' : '+str(validation_loss[k][-1]))
+
+      #Save hist figure
+      plt.figure(figsize=(4,4))
+
+      for k in validation_loss.keys():
+        if k != 'reversibility':
+          plt.plot(validation_loss[k])
+
+      plt.ylabel('validation loss')  
+      plt.xlabel('epochs')
+      #plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$'], loc='upper right')
+      plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$','$\|\| Dv \|\|_{1,\infty}$'], loc='upper right')
+      plt.savefig(output_path+prefix+'_loss_validation.png',dpi=150, bbox_inches='tight')
+      plt.close()
       
-    for (x,y) in testloader:
-      x, y = x.to(device), y.to(device)
-      fx_tmp = feature_net(x)
-      mx_tmp = mx2y_net(fx_tmp)
-      my_tmp = my2x_net(mx_tmp)
-      validation_loss['reversibility'][-1] += mse(fx_tmp,my_tmp).item() * x.shape[0]
+      plt.figure()
+      plt.plot(validation_loss['reversibility'])
+      plt.plot(validation_loss['reversibility2'])
+      plt.legend(['$\| f(x) - m^{-1} \circ m \circ f(x) \|^2$','$\| f(y) - m \circ m^{-1} \circ f(y) \|^2$'])
+      plt.savefig(output_path+prefix+'_inverr.png',dpi=150, bbox_inches='tight')
+      plt.close()   
 
-      fy_tmp = feature_net(y)
-      my_tmp = my2x_net(fy_tmp)
-      mx_tmp = mx2y_net(my_tmp)
-      validation_loss['reversibility2'][-1] += mse(fy_tmp,mx_tmp).item() * x.shape[0]
+      print('\nComputing norm velocity...')  
+      for (x,y) in testloader:
+        x, y = x.to(device), y.to(device)
+
+        nv = norm_v(feature_net,forward_blocks, x)
+        ngv = block_lipschitz(block_x2y_list,n_filters)
+
+        for l in range(len(forward_blocks)):
+          validation_norm_velocity[l,iteration] = np.maximum(nv[l].cpu().detach().numpy(), validation_norm_velocity[l,iteration])
+          validation_norm_gradient_velocity[l,iteration] = np.maximum(ngv[l].cpu().detach().numpy(), validation_norm_gradient_velocity[l,iteration])
+                      
+      plt.figure(figsize=(4,4))
       
-      rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = net(x,y)
-      loss = {}
-      for k in lw.keys(): #compute only loss whose weight is non zero
-        if k == 'normv':
-          loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)#loss_norm_v(feature_net,forward_blocks[0:n_blocks],x)
-        else:
-          loss[k] = mse(eval(k),eval(k[-1]))
+      for i in range(validation_norm_velocity.shape[0]):
+        plt.plot(validation_norm_velocity[i,0:iteration+1])
+      plt.savefig(output_path+prefix+'_norm_velocity.png',dpi=150, bbox_inches='tight')
+      plt.close()
 
-      total_loss = 0
-      for k in loss.keys():
-        total_loss += lw[k] * loss[k]
-            
-      validation_loss['loss'][-1] += total_loss.item() * x.shape[0]
+      plt.figure(figsize=(4,4))    
+      im = plt.imshow(validation_norm_velocity,cmap=plt.cm.gray,
+                  interpolation="nearest")
+      plt.colorbar(im)
+      plt.savefig(output_path+prefix+'_norm_velocity_matrix.png',dpi=150, bbox_inches='tight')
+      plt.close()
 
-      for k in loss.keys():
-        validation_loss[k][-1] += loss[k].item() * x.shape[0]
-       
-
-    for k in validation_loss.keys():
-      validation_loss[k][-1] /= n_testing_samples
-      print('-> epoch '+str(epoch + 1)+', validation '+str(k)+' : '+str(validation_loss[k][-1]))
-
-    #Save hist figure
-    plt.figure(figsize=(4,4))
- 
-    for k in validation_loss.keys():
-      if k != 'reversibility':
-        plt.plot(validation_loss[k])
-
-    plt.ylabel('validation loss')  
-    plt.xlabel('epochs')
-    plt.legend(['overall loss','$g(x)$','$g^{-1}(y)$','$r \circ m^{-1} \circ f(x)$','$r \circ m \circ f(y)$','$g^{-1} \circ g(x)$','$g \circ g^{-1}(y)$','$r \circ f(x)$','$r \circ f(y)$','$\|\| v \|\|_{1,\infty}$'], loc='upper right')
-    plt.savefig(output_path+prefix+'_loss_validation.png',dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    plt.figure()
-    plt.plot(validation_loss['reversibility'])
-    plt.plot(validation_loss['reversibility2'])
-    plt.legend(['$\| f(x) - m^{-1} \circ m \circ f(x) \|^2$','$\| f(y) - m \circ m^{-1} \circ f(y) \|^2$'])
-    plt.savefig(output_path+prefix+'_inverr.png',dpi=150, bbox_inches='tight')
-    plt.close()   
-
-    print('\nComputing norm velocity...')  
-    for (x,y) in testloader:
-      x, y = x.to(device), y.to(device)
-
-      nv,ngv = norm_inf_v(feature_net,forward_blocks, x, along_trajectory = True, only_activation = False, only_gradient = False)
+      plt.figure(figsize=(4,4))
       
-      for l in range(len(forward_blocks)):
-        validation_norm_velocity[l,iteration] = np.maximum(nv[l].cpu().detach().numpy(), validation_norm_velocity[l,iteration])
-        validation_norm_gradient_velocity[l,iteration] = np.maximum(ngv[l].cpu().detach().numpy(), validation_norm_gradient_velocity[l,iteration])
-                    
-    plt.figure(figsize=(4,4))
-    
-    for i in range(validation_norm_velocity.shape[0]):
-      plt.plot(validation_norm_velocity[i,0:iteration+1])
-    plt.savefig(output_path+prefix+'_norm_velocity.png',dpi=150, bbox_inches='tight')
-    plt.close()
+      for i in range(validation_norm_gradient_velocity.shape[0]):
+        plt.plot(validation_norm_gradient_velocity[i,0:iteration+1])
+      plt.savefig(output_path+prefix+'_norm_gradient_velocity.png',dpi=150, bbox_inches='tight')
+      plt.close()
 
-    plt.figure(figsize=(4,4))    
-    im = plt.imshow(validation_norm_velocity,cmap=plt.cm.gray,
-                 interpolation="nearest")
-    plt.colorbar(im)
-    plt.savefig(output_path+prefix+'_norm_velocity_matrix.png',dpi=150, bbox_inches='tight')
-    plt.close()
+      plt.figure(figsize=(4,4))
+      
+      im = plt.imshow(validation_norm_gradient_velocity,cmap=plt.cm.gray,
+                  interpolation="nearest")
+      plt.colorbar(im)
+      plt.savefig(output_path+prefix+'_norm_gradient_velocity_matrix.png',dpi=150, bbox_inches='tight')
+      plt.close()
 
-    plt.figure(figsize=(4,4))
+      print('max norm velocity : '+str(np.max(validation_norm_velocity[:,iteration])))
+      print('max norm gradient velocity : '+str(np.max(validation_norm_gradient_velocity[:,iteration])))
     
-    for i in range(validation_norm_gradient_velocity.shape[0]):
-      plt.plot(validation_norm_gradient_velocity[i,0:iteration+1])
-    plt.savefig(output_path+prefix+'_norm_gradient_velocity.png',dpi=150, bbox_inches='tight')
-    plt.close()
-
-    plt.figure(figsize=(4,4))
-    
-    im = plt.imshow(validation_norm_gradient_velocity,cmap=plt.cm.gray,
-                 interpolation="nearest")
-    plt.colorbar(im)
-    plt.savefig(output_path+prefix+'_norm_gradient_velocity_matrix.png',dpi=150, bbox_inches='tight')
-    plt.close()
-
-    
-    #Calcul de Lipschitz
     iteration += 1 
     
 print('last iteration : '+str(iteration))

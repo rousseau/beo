@@ -73,7 +73,7 @@ if use_fp16 == 1:
 
 #%%
 batch_size = 16  
-epochs = 8       #n_epochs per learning steps
+epochs = 3#8       #n_epochs per learning steps
 n_filters = 32
 n_channelsX = 1
 n_channelsY = 1 
