@@ -2,10 +2,9 @@ import glob
 import nibabel
 import SimpleITK as sitk
 import numpy as np
-import tensorflow.keras.backend as K
 import os
 import multiprocessing
-from tensorflow.keras.optimizers import Adam
+#from tensorflow.keras.optimizers import Adam
 
 def get_list_of_files(data_path, key, verbose=0):
   directories = glob.glob(data_path, recursive=True)
@@ -121,6 +120,8 @@ def apply_model_on_3dimage(model,image,mask=None):
   Apply a Keras model on a 3D nibabel image.
   A mask (numpy array) can be used for normalization
   """
+  import tensorflow.keras.backend as K
+
   array = image.get_data().astype(float)
   #Convert 3D array to 4D array with channel last
   if len(array.shape) < 4:
