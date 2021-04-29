@@ -77,7 +77,7 @@ training_set = tio.SubjectsDataset(
     training_subjects, transform=training_transform)
 
 validation_set = tio.SubjectsDataset(
-    validation_subjects, transform=validation_transform)
+    validation_subjects, transform=validation_transform, )
 
 print('Training set:', len(training_set), 'subjects')
 print('Validation set:', len(validation_set), 'subjects')
@@ -86,9 +86,9 @@ print('Validation set:', len(validation_set), 'subjects')
 
 print('Inference')
 
-patch_overlap = 32
-patch_size = 64, 64, 64
-batch_size = 16
+patch_overlap = 64
+patch_size = 128
+batch_size = 2
 
 subject = validation_set[0]
 

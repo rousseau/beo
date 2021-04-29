@@ -19,16 +19,18 @@ from utils import get_list_of_files
 import glob
 import multiprocessing
 
+from beo_pl_nets import Unet
+
 
 max_subjects = 50
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
 num_workers = 8#multiprocessing.cpu_count()
 
-training_batch_size = 16
+training_batch_size = 2
 validation_batch_size = 1 * training_batch_size
 
-patch_size = 64
+patch_size = 128
 samples_per_volume = 32
 max_queue_length = 512
 
@@ -180,171 +182,16 @@ validation_loader_patches = torch.utils.data.DataLoader(
 #model = HighRes3DNet(in_channels=1, out_channels=10)
 
 
-class Unet(pl.LightningModule):
-    def __init__(self):
-        super(Unet, self).__init__()
-
-        self.n_channels = 1
-        self.n_classes = 10
-        self.n_features = 32
-
-        def double_conv(in_channels, out_channels):
-            return nn.Sequential(
-                nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
-                nn.BatchNorm3d(out_channels),
-                nn.ReLU(inplace=True),
-                nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
-                nn.BatchNorm3d(out_channels),
-                nn.ReLU(inplace=True),
-            )
-
-
-        self.dc1 = double_conv(self.n_channels, self.n_features)
-        self.dc2 = double_conv(self.n_features, self.n_features*2)
-        self.dc3 = double_conv(self.n_features*2, self.n_features*4)
-        self.dc4 = double_conv(self.n_features*6, self.n_features*2)
-        self.dc5 = double_conv(self.n_features*3, self.n_features)
-
-        self.mp = nn.MaxPool3d(2)
-        self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
-
-        self.out = nn.Conv3d(self.n_features, self.n_classes, kernel_size=1)
-
-    def forward(self, x):
-        x1 = self.dc1(x)
-
-        x2 = self.mp(x1)
-        x2 = self.dc2(x2)
-
-        x3 = self.mp(x2)
-        x3 = self.dc3(x3)
-
-        x4 = self.up(x3)
-        x4 = torch.cat([x4,x2], dim=1)
-        x4 = self.dc4(x4)
-
-        x5 = self.up(x4)
-        x5 = torch.cat([x5,x1], dim=1)
-        x5 = self.dc5(x5)
-        return self.out(x5)
-
-    def training_step(self, batch, batch_idx):
-        patches_batch = batch
-        x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['seg'][tio.DATA]
-        y_hat = self(x)
-
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(y_hat,y)
-        self.log('train_loss', loss)
-        return loss        
-
-    def validation_step(self, batch, batch_idx):
-        patches_batch = batch
-        x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['seg'][tio.DATA]
-        y_hat = self(x)
-
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(y_hat,y)
-        self.log('val_loss', loss)
-        return loss        
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
-
-
 
 net = Unet()
 
 
 #%%
-class LitCNN(pl.LightningModule):
-
-  def __init__(self):
-    super().__init__()
- 
-    in_channels = 1
-    out_channels = 10
-    n_filters = 32
-
-    self.encoder = nn.Sequential(
-      nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = out_channels, kernel_size = 3,stride = 1, padding=1),
-    )
-
-
-  def forward(self,x): 
-    return self.encoder(x)
-
-  def training_step(self, batch, batch_idx):
-    patches_batch = batch
-    x = patches_batch['t2'][tio.DATA]
-    y = patches_batch['seg'][tio.DATA]
-    y_hat = self(x)
-
-    criterion = nn.BCEWithLogitsLoss()
-    loss = criterion(y_hat,y)
-    self.log('train_loss', loss)
-    return loss
-
-  def configure_optimizers(self):
-    optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-    return optimizer
-
-
-#net = LitCNN()
-
-#%%
-#from torchsummary import summary
-#summary(net, (1, 128, 128, 128))
-#device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
-#print('Device:', device)
-#model.to(device).eval();
-
-#%%
 trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20)
 trainer.fit(net, training_loader_patches)
 
-
-
-
-
-#%%
-
-# optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-# criterion = torch.nn.CrossEntropyLoss()
-
-# for epoch_index in range(num_epochs):
-
-#   for patches_batch in training_loader_patches:
-#     # get the inputs; data is a list of [inputs, labels]
-#     inputs = patches_batch['t2'][tio.DATA]
-#     labels = patches_batch['seg'][tio.DATA]
-
-#     # zero the parameter gradients
-#     optimizer.zero_grad()
-
-#     # forward + backward + optimize
-#     outputs = model(inputs)
-#     loss = criterion(outputs, labels)
-#     loss.backward()
-#     optimizer.step()
-
 print('Finished Training')
 
-# weights_stem = 'patches'
-# train_losses, val_losses = train(
-#         num_epochs,
-#         training_loader_patches,
-#         validation_loader_patches,
-#         model,
-#         optimizer,
-#         weights_stem,
-#     )
 
 #%%
 print('Inference')
