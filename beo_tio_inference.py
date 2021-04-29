@@ -86,8 +86,9 @@ print('Validation set:', len(validation_set), 'subjects')
 
 print('Inference')
 
-patch_overlap = 16
+patch_overlap = 32
 patch_size = 64, 64, 64
+batch_size = 16
 
 subject = validation_set[0]
 
@@ -97,8 +98,8 @@ grid_sampler = tio.inference.GridSampler(
   patch_overlap,
   )
 
-patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=4)
-aggregator = tio.inference.GridAggregator(grid_sampler)
+patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=batch_size)
+aggregator = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 
 net = Unet.load_from_checkpoint(output_path+'example_model.ckpt')
 net.eval()
