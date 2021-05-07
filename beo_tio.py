@@ -22,17 +22,23 @@ import multiprocessing
 from beo_pl_nets import Unet
 
 
-max_subjects = 50
+max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
-num_workers = 8#multiprocessing.cpu_count()
+num_workers = 1#multiprocessing.cpu_count()
 
-training_batch_size = 2
+training_batch_size = 1
 validation_batch_size = 1 * training_batch_size
 
 patch_size = 128
 samples_per_volume = 32
 max_queue_length = 512
+
+prefix = 'unet3d'
+prefix += '_epochs_'+str(num_epochs)
+prefix += '_subj_'+str(max_subjects)
+prefix += '_patches_'+str(patch_size)
+prefix += '_sampling_'+str(samples_per_volume)
 
 data_path = home+'/Sync/Data/DHCP/'
 output_path = home+'/Sync/Experiments/'
@@ -228,7 +234,7 @@ output_seg = tio.ScalarImage(tensor=output_tensor, affine=subject['t2'].affine)
 output_seg.save(output_path+'toto.nii.gz')
 subject['t2'].save(output_path+'toto_t2.nii.gz')
 subject['seg'].save(output_path+'toto_seg.nii.gz')
-trainer.save_checkpoint(output_path+'example_model.ckpt')
+trainer.save_checkpoint(output_path+prefix+'.ckpt')
 
 print(output_seg.affine)
 print(subject['t2'].affine)
