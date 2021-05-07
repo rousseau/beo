@@ -39,20 +39,6 @@ if __name__ == '__main__':
   dataset = tio.SubjectsDataset(subjects)
   print('Dataset size:', len(dataset), 'subjects')
 
-  training_transform = tio.Compose([
-  #tio.ToCanonical(),
-  #tio.RandomMotion(p=0.2),
-  #tio.RandomBiasField(p=0.3),
-  tio.ZNormalization(masking_method=tio.ZNormalization.mean),
-  #tio.RandomNoise(p=0.5),
-  #tio.RandomFlip(),
-  #tio.OneOf({
-  #  tio.RandomAffine(): 0.8,
-  #  tio.RandomElasticDeformation(): 0.2,
-  #}),
-  tio.OneHot(),
-  ])
-
   validation_transform = tio.Compose([
     #tio.ToCanonical(),
     tio.ZNormalization(masking_method=tio.ZNormalization.mean),
@@ -63,11 +49,7 @@ if __name__ == '__main__':
   validation_set = tio.SubjectsDataset(
     subjects, transform=validation_transform )
 
-  print('Validation set:', len(validation_set), 'subjects')
-
-
-
-  print('Inference')
+  print('Patch sampling')
 
   patch_overlap = 64
   patch_size = 128
@@ -86,6 +68,8 @@ if __name__ == '__main__':
 
   net = Unet.load_from_checkpoint(args.model)
   net.eval()
+
+  print('Inference')
 
   with torch.no_grad():
     for patches_batch in patch_loader:
