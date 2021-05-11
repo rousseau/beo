@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torchio as tio
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from utils import get_list_of_files
 import glob
@@ -25,14 +26,14 @@ from beo_pl_nets import Unet
 max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
-num_workers = 1#multiprocessing.cpu_count()
+num_workers = 0#multiprocessing.cpu_count()
 
 training_batch_size = 1
-validation_batch_size = 1 * training_batch_size
+validation_batch_size = 1 
 
 patch_size = 128
 samples_per_volume = 32
-max_queue_length = 512
+max_queue_length = 256
 
 prefix = 'unet3d'
 prefix += '_epochs_'+str(num_epochs)
@@ -73,25 +74,46 @@ print(one_subject.seg)
 
 #%%
 
-training_transform = tio.Compose([
+normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
+onehot = tio.OneHot()
+
+prefix += '_bias_flip_affine_noise'
+
+spatial = tio.OneOf({
+    tio.RandomAffine(scales=0.1,degrees=30): 0.8,
+    #tio.RandomElasticDeformation(): 0.2,
+  },
+  p=0.75,
+)
+
+bias = tio.RandomBiasField(p=0.3)
+flip = tio.RandomFlip()
+noise = tio.RandomNoise(p=0.5)
+
+transforms = [bias, normalization, flip, spatial, noise, onehot]
+
+training_transform = tio.Compose(transforms)
+validation_transform = tio.Compose([normalization, onehot])
+
+#training_transform = tio.Compose([
   #tio.ToCanonical(),
   #tio.RandomMotion(p=0.2),
   #tio.RandomBiasField(p=0.3),
-  tio.ZNormalization(masking_method=tio.ZNormalization.mean),
+#  tio.ZNormalization(masking_method=tio.ZNormalization.mean),
   #tio.RandomNoise(p=0.5),
   #tio.RandomFlip(),
   #tio.OneOf({
   #  tio.RandomAffine(): 0.8,
   #  tio.RandomElasticDeformation(): 0.2,
   #}),
-  tio.OneHot(),
-])
+#  tio.OneHot(),
+#])
 
-validation_transform = tio.Compose([
-  #tio.ToCanonical(),
-  tio.ZNormalization(masking_method=tio.ZNormalization.mean),
-  tio.OneHot(),
-])
+#validation_transform = tio.Compose([
+#  #tio.ToCanonical(),
+#  tio.ZNormalization(masking_method=tio.ZNormalization.mean),
+#  tio.OneHot(),
+#])
 
 #%%
 seed = 42  # for reproducibility
@@ -193,8 +215,15 @@ net = Unet()
 
 
 #%%
-trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20)
-trainer.fit(net, training_loader_patches)
+
+checkpoint_callback = ModelCheckpoint(
+  dirpath=output_path,
+  filename=prefix+'_{epoch:02d}',
+  verbose=True
+  )
+
+trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback])
+trainer.fit(net, training_loader_patches, validation_loader_patches)
 
 print('Finished Training')
 
