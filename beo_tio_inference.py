@@ -26,6 +26,10 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Input image', type=str, required=True)
   parser.add_argument('-m', '--model', help='Pytorch model', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output image', type=str, required=True)
+  parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 128)
+  parser.add_argument('--patch_overlap', help='Patch overlap', type=int, required=False, default = 64)
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 2)
+
   args = parser.parse_args()
 
 
@@ -51,9 +55,9 @@ if __name__ == '__main__':
 
   print('Patch sampling')
 
-  patch_overlap = 64
-  patch_size = 128
-  batch_size = 2
+  patch_overlap = args.patch_overlap
+  patch_size = args.patch_size
+  batch_size = args.batch_size
 
   subject = validation_set[0]
 
