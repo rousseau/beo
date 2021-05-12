@@ -77,11 +77,11 @@ print(one_subject.seg)
 normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
 onehot = tio.OneHot()
 
-prefix += '_bias_flip_affine_noise'
+prefix += '_bias_flip_elastic_noise'
 
 spatial = tio.OneOf({
     tio.RandomAffine(scales=0.1,degrees=30): 0.8,
-    #tio.RandomElasticDeformation(): 0.2,
+    tio.RandomElasticDeformation(): 0.2,
   },
   p=0.75,
 )
