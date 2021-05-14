@@ -154,7 +154,7 @@ checkpoint_callback = ModelCheckpoint(
   verbose=True
   )
 
-trainer = pl.Trainer(gpus=0, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback])
+trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback])
 
 #%%
 
