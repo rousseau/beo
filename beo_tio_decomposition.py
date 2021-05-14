@@ -21,7 +21,7 @@ import multiprocessing
 
 from beo_pl_nets import DecompNet
 
-max_subjects = 10
+max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
 num_workers = 0#multiprocessing.cpu_count()
@@ -178,7 +178,10 @@ grid_sampler = tio.inference.GridSampler(
   )
 
 patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=4)
-aggregator = tio.inference.GridAggregator(grid_sampler)
+aggregator_xhat = tio.inference.GridAggregator(grid_sampler)
+aggregator_yhat = tio.inference.GridAggregator(grid_sampler)
+aggregator_rx = tio.inference.GridAggregator(grid_sampler)
+aggregator_ry = tio.inference.GridAggregator(grid_sampler)
 net.eval()
 
 with torch.no_grad():
@@ -187,12 +190,24 @@ with torch.no_grad():
     y_tensor = patches_batch['t2'][tio.DATA]
     locations = patches_batch[tio.LOCATION]
     x_hat, y_hat, rx, ry, fx, fy = net(x_tensor, y_tensor)
-    aggregator.add_batch(x_hat, locations)
-output_tensor = aggregator.get_output_tensor()
+    aggregator_xhat.add_batch(x_hat, locations)
+    aggregator_yhat.add_batch(y_hat, locations)
+    aggregator_rx.add_batch(rx, locations)
+    aggregator_ry.add_batch(ry, locations)
 
-print(output_tensor.shape)
+output_xhat = aggregator_xhat.get_output_tensor()
+output_yhat = aggregator_yhat.get_output_tensor()
+output_rx = aggregator_rx.get_output_tensor()
+output_ry = aggregator_ry.get_output_tensor()
 
-output = tio.ScalarImage(tensor=output_tensor, affine=subject['t1'].affine)
-output.save(output_path+'gromov_xhat.nii.gz')
+o_xhat = tio.ScalarImage(tensor=output_xhat, affine=subject['t1'].affine)
+o_xhat.save(output_path+'gromov_xhat.nii.gz')
+o_yhat = tio.ScalarImage(tensor=output_yhat, affine=subject['t1'].affine)
+o_yhat.save(output_path+'gromov_yhat.nii.gz')
+o_rx = tio.ScalarImage(tensor=output_rx, affine=subject['t1'].affine)
+o_rx.save(output_path+'gromov_rx.nii.gz')
+o_ry = tio.ScalarImage(tensor=output_ry, affine=subject['t1'].affine)
+o_ry.save(output_path+'gromov_ry.nii.gz')
+
 subject['t2'].save(output_path+'gromov_t2.nii.gz')
 subject['t1'].save(output_path+'gromov_t1.nii.gz')
