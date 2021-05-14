@@ -16,7 +16,6 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from utils import get_list_of_files
 import glob
 import multiprocessing
 
@@ -224,6 +223,7 @@ checkpoint_callback = ModelCheckpoint(
 
 trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback])
 trainer.fit(net, training_loader_patches, validation_loader_patches)
+trainer.save_checkpoint(output_path+prefix+'.ckpt')
 
 print('Finished Training')
 
@@ -263,7 +263,6 @@ output_seg = tio.ScalarImage(tensor=output_tensor, affine=subject['t2'].affine)
 output_seg.save(output_path+'toto.nii.gz')
 subject['t2'].save(output_path+'toto_t2.nii.gz')
 subject['seg'].save(output_path+'toto_seg.nii.gz')
-trainer.save_checkpoint(output_path+prefix+'.ckpt')
 
 print(output_seg.affine)
 print(subject['t2'].affine)
