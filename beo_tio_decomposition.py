@@ -159,5 +159,40 @@ trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20
 #%%
 
 trainer.fit(net, training_loader_patches, validation_loader_patches)
+trainer.save_checkpoint(output_path+prefix+'.ckpt')
 
 print('Finished Training')
+
+#%%
+print('Inference')
+
+patch_overlap = 4, 4, 4  # or just 4
+patch_size = 64, 64, 64
+
+subject = validation_set[0]
+
+grid_sampler = tio.inference.GridSampler(
+  subject,
+  patch_size,
+  patch_overlap,
+  )
+
+patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=4)
+aggregator = tio.inference.GridAggregator(grid_sampler)
+net.eval()
+
+with torch.no_grad():
+  for patches_batch in patch_loader:
+    x_tensor = patches_batch['t1'][tio.DATA]
+    y_tensor = patches_batch['t2'][tio.DATA]
+    locations = patches_batch[tio.LOCATION]
+    x_hat, y_hat, rx, ry, fx, fy = net(x_tensor, y_tensor)
+    aggregator.add_batch(x_hat, locations)
+output_tensor = aggregator.get_output_tensor()
+
+print(output_tensor.shape)
+
+output = tio.ScalarImage(tensor=output_tensor, affine=subject['t1'].affine)
+output.save(output_path+'gromov_xhat.nii.gz')
+subject['t2'].save(output_path+'gromov_t2.nii.gz')
+subject['t1'].save(output_path+'gromov_t1.nii.gz')
