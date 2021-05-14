@@ -190,6 +190,16 @@ class DecompNet(pl.LightningModule):
     self.log('train_loss', loss)
     return loss
 
+  def validation_step(self, batch, batch_idx):
+    patches_batch = batch
+    x = patches_batch['t1'][tio.DATA]
+    y = patches_batch['t2'][tio.DATA]
+    
+    x_hat, y_hat, rx, ry, fx, fy = self(x,y)
+    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy)
+    self.log('val_loss', loss)
+    return loss
+
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
     return optimizer
