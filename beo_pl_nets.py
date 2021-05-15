@@ -155,11 +155,12 @@ class DecompNet(pl.LightningModule):
     n = 2*2*2    #3 layers of stride 2 : 64/8 * 64/8 * 64/8 * 16 -> 8192 hidden dim !
     self.hidden_dim = int((patch_size / n)*(patch_size / n)*(patch_size / n)*n_filters)
     self.latent_dim = int(latent_dim) 
+    self.n_classes = 10
 
     self.encoder = Encoder(latent_dim, n_filters, patch_size)
     self.feature = Feature(n_filters)
     self.reconstruction = Reconstruction(n_filters+self.latent_dim, n_filters)
-    
+    self.segmenter = Feature2Segmentation(n_filters, self.n_classes)
 
   def forward(self,x,y): 
     zx = self.encoder(x)
@@ -189,16 +190,21 @@ class DecompNet(pl.LightningModule):
     ry = self.reconstruction(fxzfy)
 
     #Add cycle consistency ?
+
+    #Segmentation
+    sx = self.segmenter(fx)
+    sy = self.segmenter(fy)
     
-    return x_hat, y_hat, rx, ry, fx, fy
+    return x_hat, y_hat, rx, ry, fx, fy, sx, sy
 
   def training_step(self, batch, batch_idx):
     patches_batch = batch
     x = patches_batch['t1'][tio.DATA]
     y = patches_batch['t2'][tio.DATA]
+    s = patches_batch['seg'][tio.DATA]
     
-    x_hat, y_hat, rx, ry, fx, fy = self(x,y)
-    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy)
+    x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
+    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s) + F.mse_loss(sy, s)
     self.log('train_loss', loss)
     return loss
 
@@ -206,9 +212,10 @@ class DecompNet(pl.LightningModule):
     patches_batch = batch
     x = patches_batch['t1'][tio.DATA]
     y = patches_batch['t2'][tio.DATA]
+    s = patches_batch['seg'][tio.DATA]
     
-    x_hat, y_hat, rx, ry, fx, fy = self(x,y)
-    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy)
+    x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
+    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s) + F.mse_loss(sy, s)
     self.log('val_loss', loss)
     return loss
 
