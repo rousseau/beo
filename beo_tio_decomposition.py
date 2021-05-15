@@ -21,23 +21,28 @@ import multiprocessing
 
 from beo_pl_nets import DecompNet
 
-max_subjects = 100
+max_subjects = 400
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
-num_epochs = 5
-num_workers = 0#multiprocessing.cpu_count()
+num_epochs = 10
+num_workers = 8#multiprocessing.cpu_count()
 
-training_batch_size = 1
-validation_batch_size = 1 
+training_batch_size = 8
+validation_batch_size = 8 
 
 patch_size = 64
 samples_per_volume = 32
-max_queue_length = 256
+max_queue_length = 512
+
+latent_dim = 10
+n_filters = 16
 
 prefix = 'gromov'
 prefix += '_epochs_'+str(num_epochs)
 prefix += '_subj_'+str(max_subjects)
 prefix += '_patches_'+str(patch_size)
 prefix += '_sampling_'+str(samples_per_volume)
+prefix += '_latentdim_'+str(latent_dim)
+prefix += '_nfilters_'+str(n_filters)
 
 data_path = home+'/Sync/Data/DHCP/'
 output_path = home+'/Sync/Experiments/'
@@ -146,7 +151,7 @@ validation_loader_patches = torch.utils.data.DataLoader(
 
 #%%
 
-net = DecompNet()
+net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
 
 checkpoint_callback = ModelCheckpoint(
   dirpath=output_path,
@@ -166,8 +171,8 @@ print('Finished Training')
 #%%
 print('Inference')
 
-patch_overlap = 4, 4, 4  # or just 4
-patch_size = 64, 64, 64
+patch_overlap = 32  
+patch_size = 64
 
 subject = validation_set[0]
 
