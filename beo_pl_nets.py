@@ -137,6 +137,16 @@ class Reconstruction(torch.nn.Module):
   def forward(self,x):
     return self.recon(x)    
 
+class Feature2Segmentation(torch.nn.Module):
+  def __init__(self, in_channels, out_channels):
+    super(Feature2Segmentation, self).__init__()
+    
+    self.seg = nn.Sequential(
+      nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=1)
+      )      
+  def forward(self,x):
+    return self.seg(x)        
+
 class DecompNet(pl.LightningModule):
 
   def __init__(self, latent_dim = 32, n_filters = 16, patch_size = 64):
