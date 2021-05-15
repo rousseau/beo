@@ -116,6 +116,8 @@ class Feature(torch.nn.Module):
       nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
       nn.ReLU(),
       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+      nn.ReLU(),
+      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
       nn.Tanh()
       )
   def forward(self,x):
