@@ -189,6 +189,8 @@ aggregator_rx = tio.inference.GridAggregator(grid_sampler)
 aggregator_ry = tio.inference.GridAggregator(grid_sampler)
 aggregator_fx = tio.inference.GridAggregator(grid_sampler)
 aggregator_fy = tio.inference.GridAggregator(grid_sampler)
+aggregator_sx = tio.inference.GridAggregator(grid_sampler)
+aggregator_sy = tio.inference.GridAggregator(grid_sampler)
 net.eval()
 
 with torch.no_grad():
@@ -196,13 +198,15 @@ with torch.no_grad():
     x_tensor = patches_batch['t1'][tio.DATA]
     y_tensor = patches_batch['t2'][tio.DATA]
     locations = patches_batch[tio.LOCATION]
-    x_hat, y_hat, rx, ry, fx, fy = net(x_tensor, y_tensor)
+    x_hat, y_hat, rx, ry, fx, fy, sx, sy = net(x_tensor, y_tensor)
     aggregator_xhat.add_batch(x_hat, locations)
     aggregator_yhat.add_batch(y_hat, locations)
     aggregator_rx.add_batch(rx, locations)
     aggregator_ry.add_batch(ry, locations)
     aggregator_fx.add_batch(fx, locations)
     aggregator_fy.add_batch(fy, locations)
+    aggregator_sx.add_batch(sx, locations)
+    aggregator_sy.add_batch(sy, locations)
 
 output_xhat = aggregator_xhat.get_output_tensor()
 output_yhat = aggregator_yhat.get_output_tensor()
@@ -210,6 +214,8 @@ output_rx = aggregator_rx.get_output_tensor()
 output_ry = aggregator_ry.get_output_tensor()
 output_fx = aggregator_fx.get_output_tensor()
 output_fy = aggregator_fy.get_output_tensor()
+output_sx = aggregator_sx.get_output_tensor()
+output_sy = aggregator_sy.get_output_tensor()
 
 o_xhat = tio.ScalarImage(tensor=output_xhat, affine=subject['t1'].affine)
 o_xhat.save(output_path+'gromov_xhat.nii.gz')
@@ -223,6 +229,10 @@ o_fx = tio.ScalarImage(tensor=output_fx, affine=subject['t1'].affine)
 o_fx.save(output_path+'gromov_fx.nii.gz')
 o_fy = tio.ScalarImage(tensor=output_fy, affine=subject['t1'].affine)
 o_fy.save(output_path+'gromov_fy.nii.gz')
+o_sx = tio.ScalarImage(tensor=output_sx, affine=subject['t1'].affine)
+o_sx.save(output_path+'gromov_sx.nii.gz')
+o_sy = tio.ScalarImage(tensor=output_sy, affine=subject['t1'].affine)
+o_sy.save(output_path+'gromov_sy.nii.gz')
 
 subject['t2'].save(output_path+'gromov_t2.nii.gz')
 subject['t1'].save(output_path+'gromov_t1.nii.gz')
