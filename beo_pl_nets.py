@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+from torch.nn.modules.activation import Sigmoid
 import torchio as tio
 
 
@@ -88,15 +89,20 @@ class Unet(pl.LightningModule):
 
 
 class Encoder(torch.nn.Module):
-  def __init__(self, latent_dim = 32, n_filters = 16, patch_size = 64):
+  def __init__(self, latent_dim = 32, n_filters = 16, patch_size = 64): 
     super(Encoder, self).__init__()
-
+    
+    #patch_size = 64
     n = 2*2*2    #3 layers of stride 2 : 64/8 * 64/8 * 64/8 * 16 -> 8192 hidden dim !
+    #patch_size = 128
+    n = 2*2*2*2    #4 layers of stride 2 : 128/16 * 128/16 * 128/16 * 32
     self.hidden_dim = int((patch_size / n)*(patch_size / n)*(patch_size / n)*n_filters)
     self.latent_dim = int(latent_dim) 
 
     self.enc = nn.Sequential(
       nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
+      nn.ReLU(),
+      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
@@ -112,16 +118,60 @@ class Encoder(torch.nn.Module):
 class Feature(torch.nn.Module):
   def __init__(self, n_filters = 16):
     super(Feature, self).__init__()
-    self.feat = nn.Sequential(
-      nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.Tanh()
-      )
+
+    self.n_channels = 1
+    self.n_classes = n_filters
+    self.n_features = n_filters
+
+    def double_conv(in_channels, out_channels):
+        return nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    self.dc1 = double_conv(self.n_channels, self.n_features)
+    self.dc2 = double_conv(self.n_features, self.n_features*2)
+    self.dc3 = double_conv(self.n_features*2, self.n_features*4)
+    self.dc4 = double_conv(self.n_features*6, self.n_features*2)
+    self.dc5 = double_conv(self.n_features*3, self.n_features)
+
+    self.mp = nn.MaxPool3d(2)
+    self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
+
+    self.out = nn.Conv3d(self.n_features, self.n_classes, kernel_size=1)
+
+    # self.feat = nn.Sequential(
+    #   nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+    #   nn.ReLU(),
+    #   nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+    #   nn.ReLU(),
+    #   nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+    #   nn.Tanh()
+    #   )
+
   def forward(self,x):
-    return self.feat(x)    
+    #return self.feat(x)
+    x1 = self.dc1(x)
+
+    x2 = self.mp(x1)
+    x2 = self.dc2(x2)
+
+    x3 = self.mp(x2)
+    x3 = self.dc3(x3)
+
+    x4 = self.up(x3)
+    x4 = torch.cat([x4,x2], dim=1)
+    x4 = self.dc4(x4)
+
+    x5 = self.up(x4)
+    x5 = torch.cat([x5,x1], dim=1)
+    x5 = self.dc5(x5)
+    return self.out(x5)
+    
 
 class Reconstruction(torch.nn.Module):
   def __init__(self, in_channels, n_filters = 16):
@@ -142,7 +192,8 @@ class Feature2Segmentation(torch.nn.Module):
     super(Feature2Segmentation, self).__init__()
     
     self.seg = nn.Sequential(
-      nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=1)
+      nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
+      nn.Sigmoid()
       )      
   def forward(self,x):
     return self.seg(x)        
@@ -204,7 +255,8 @@ class DecompNet(pl.LightningModule):
     s = patches_batch['seg'][tio.DATA]
     
     x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
-    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s) + F.mse_loss(sy, s)
+
+    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s.float()) + F.mse_loss(sy, s.float())
     self.log('train_loss', loss)
     return loss
 
