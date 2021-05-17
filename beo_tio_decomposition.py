@@ -24,17 +24,23 @@ from beo_pl_nets import DecompNet
 max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
-num_workers = 0#multiprocessing.cpu_count()
 
-training_batch_size = 1
-validation_batch_size = 1 
+num_workers = 8#multiprocessing.cpu_count()
+training_batch_size = 8
+validation_batch_size = 8 
+patch_size = 64
+max_queue_length = 1024
 
-patch_size = 128
+#num_workers = 0#multiprocessing.cpu_count()
+#training_batch_size = 1
+#validation_batch_size = 1 
+#patch_size = 128
+#max_queue_length = 256
+
 samples_per_volume = 32
-max_queue_length = 256
 
 latent_dim = 10
-n_filters = 16
+n_filters = 32
 
 prefix = 'gromov'
 prefix += '_epochs_'+str(num_epochs)
@@ -182,15 +188,15 @@ grid_sampler = tio.inference.GridSampler(
   patch_overlap,
   )
 
-patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=4)
-aggregator_xhat = tio.inference.GridAggregator(grid_sampler)
-aggregator_yhat = tio.inference.GridAggregator(grid_sampler)
-aggregator_rx = tio.inference.GridAggregator(grid_sampler)
-aggregator_ry = tio.inference.GridAggregator(grid_sampler)
-aggregator_fx = tio.inference.GridAggregator(grid_sampler)
-aggregator_fy = tio.inference.GridAggregator(grid_sampler)
-aggregator_sx = tio.inference.GridAggregator(grid_sampler)
-aggregator_sy = tio.inference.GridAggregator(grid_sampler)
+patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=2)
+aggregator_xhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_yhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_rx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_ry = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_fx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_fy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_sx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+aggregator_sy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 net.eval()
 
 with torch.no_grad():
