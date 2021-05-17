@@ -21,17 +21,17 @@ import multiprocessing
 
 from beo_pl_nets import DecompNet
 
-max_subjects = 400
+max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
-num_epochs = 10
-num_workers = 8#multiprocessing.cpu_count()
+num_epochs = 5
+num_workers = 0#multiprocessing.cpu_count()
 
-training_batch_size = 8
-validation_batch_size = 8 
+training_batch_size = 1
+validation_batch_size = 1 
 
-patch_size = 64
+patch_size = 128
 samples_per_volume = 32
-max_queue_length = 512
+max_queue_length = 256
 
 latent_dim = 10
 n_filters = 16
@@ -171,8 +171,8 @@ print('Finished Training')
 #%%
 print('Inference')
 
-patch_overlap = 32  
-patch_size = 64
+patch_overlap = 64  
+patch_size = 128
 
 subject = validation_set[0]
 
