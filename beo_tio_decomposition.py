@@ -26,8 +26,8 @@ training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
 
 num_workers = 8#multiprocessing.cpu_count()
-training_batch_size = 8
-validation_batch_size = 8 
+training_batch_size = 4
+validation_batch_size = 4 
 patch_size = 64
 max_queue_length = 1024
 
@@ -171,14 +171,15 @@ trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20
 
 trainer.fit(net, training_loader_patches, validation_loader_patches)
 trainer.save_checkpoint(output_path+prefix+'.ckpt')
+#net = DecompNet.load_from_checkpoint(checkpoint_path=output_path+prefix+'.ckpt')
 
 print('Finished Training')
 
 #%%
 print('Inference')
 
-patch_overlap = 64  
-patch_size = 128
+patch_overlap = 32  
+patch_size = 64
 
 subject = validation_set[0]
 
@@ -188,7 +189,7 @@ grid_sampler = tio.inference.GridSampler(
   patch_overlap,
   )
 
-patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=2)
+patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=1)
 aggregator_xhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 aggregator_yhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 aggregator_rx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
@@ -242,3 +243,4 @@ o_sy.save(output_path+'gromov_sy.nii.gz')
 
 subject['t2'].save(output_path+'gromov_t2.nii.gz')
 subject['t1'].save(output_path+'gromov_t1.nii.gz')
+subject['seg'].save(output_path+'gromov_seg.nii.gz')
