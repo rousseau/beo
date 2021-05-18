@@ -146,7 +146,7 @@ class Feature2Segmentation(torch.nn.Module):
     
     self.seg = nn.Sequential(
       nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
-      nn.Sigmoid()
+      #nn.Sigmoid()
       )      
   def forward(self,x):
     return self.seg(x)        
@@ -164,46 +164,47 @@ class DecompNet(pl.LightningModule):
     self.reconstruction = Reconstruction(n_filters+self.latent_dim, n_filters)
     self.segmenter = Feature2Segmentation(n_filters, self.n_classes)
 
-  def forward(self,x,y): 
+    self.lw = {}
+    self.lw['rx'] = 0 #reconstruction-based loss
+    self.lw['sx'] = 1 #segmentation loss    
+    self.lw['cx'] = 0 #cross-reconstruction loss
+    self.lw['ry'] = 0 #reconstruction-based loss
+    self.lw['sy'] = 0 #segmentation loss   
+    self.lw['cy'] = 0 #cross-reconstruction loss
 
-    fy = self.feature(y)
-    sy = self.segmenter(fy)
+
+  def forward(self,x,y): 
+    
+    zx = self.encoder(x)
     fx = self.feature(x)
-    sx = self.segmenter(fx)
-    x_hat = x
-    y_hat = y
-    rx = x
-    ry = y
-    
-    # zx = self.encoder(x)
-    # fx = self.feature(x)
-    # zx = zx.view(-1,self.latent_dim,1,1,1)
-    # zfx = zx.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
-    # fxzfx = torch.cat([fx,zfx], dim=1)
-    # x_hat = self.reconstruction(fxzfx)
-    
-    # zy = self.encoder(y)
-    # fy = self.feature(y)
-    # zy = zy.view(-1,self.latent_dim,1,1,1)    
-    # zfy = zy.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
-    # fyzfy = torch.cat([fy,zfy], dim=1)
-    # y_hat = self.reconstruction(fyzfy)
+
+    zx = zx.view(-1,self.latent_dim,1,1,1)
+    zfx = zx.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fxzfx = torch.cat([fx,zfx], dim=1)
+    rx = self.reconstruction(fxzfx)
+
+    zy = self.encoder(y)
+    fy = self.feature(y)
+    zy = zy.view(-1,self.latent_dim,1,1,1)    
+    zfy = zy.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fyzfy = torch.cat([fy,zfy], dim=1)
+    ry = self.reconstruction(fyzfy)
 
     # #reconstruction of x using fy and zfx
-    # fyzfx = torch.cat([fy,zfx], dim=1)
-    # rx = self.reconstruction(fyzfx)
+    fyzfx = torch.cat([fy,zfx], dim=1)
+    cx = self.reconstruction(fyzfx)
 
     # #reconstruction of y using fx and zfy
-    # fxzfy = torch.cat([fx,zfy], dim=1)
-    # ry = self.reconstruction(fxzfy)
+    fxzfy = torch.cat([fx,zfy], dim=1)
+    cy = self.reconstruction(fxzfy)
 
     # #Add cycle consistency ?
 
     # #Segmentation
-    # sx = self.segmenter(fx)
-    # sy = self.segmenter(fy)
+    sx = self.segmenter(fx)
+    sy = self.segmenter(fy)
     
-    return x_hat, y_hat, rx, ry, fx, fy, sx, sy
+    return rx, ry, cx, cy, fx, fy, sx, sy
 
   def training_step(self, batch, batch_idx):
     patches_batch = batch
@@ -211,11 +212,25 @@ class DecompNet(pl.LightningModule):
     y = patches_batch['t2'][tio.DATA]
     s = patches_batch['seg'][tio.DATA]
     
-    x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
+    rx, ry, cx, cy, fx, fy, sx, sy = self(x,y)
+
+    bce = nn.BCEWithLogitsLoss()
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += F.mse_loss(rx, x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += F.mse_loss(ry, y)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += F.mse_loss(cx, x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += F.mse_loss(cy, y)
+      if k == 'sx' and self.lw[k] > 0:
+        loss += bce(sx, s.float())
+      if k == 'sy' and self.lw[k] > 0:
+        loss += bce(sy, s.float())
 
     #loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s.float()) + F.mse_loss(sy, s.float())
-    loss = F.mse_loss(sx, s.float()) + F.mse_loss(sy, s.float())
-    
     self.log('train_loss', loss)
     return loss
 
@@ -225,8 +240,24 @@ class DecompNet(pl.LightningModule):
     y = patches_batch['t2'][tio.DATA]
     s = patches_batch['seg'][tio.DATA]
     
+    bce = nn.BCEWithLogitsLoss()
     x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
-    loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s) + F.mse_loss(sy, s)
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += F.mse_loss(rx, x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += F.mse_loss(ry, y)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += F.mse_loss(cx, x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += F.mse_loss(cy, y)
+      if k == 'sx' and self.lw[k] > 0:
+        loss += bce(sx, s.float())
+      if k == 'sy' and self.lw[k] > 0:
+        loss += bce(sy, s.float())
+    #loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + bce(sx, s.float()) + bce(sy, s.float()) + F.mse_loss(rx, x) + F.mse_loss(ry, y)        
+
     self.log('val_loss', loss)
     return loss
 
