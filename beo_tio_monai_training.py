@@ -19,16 +19,16 @@ import monai
 import glob
 import multiprocessing
 
-max_subjects = 200
+max_subjects = 400
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 50
 num_workers = 6#multiprocessing.cpu_count()
 
-training_batch_size = 8
-validation_batch_size = 8 
+training_batch_size = 4
+validation_batch_size = 4 
 
 patch_size = 128
-samples_per_volume = 16
+samples_per_volume = 8
 max_queue_length = 128
 
 prefix = 'unet3d_monai_dhcp'
@@ -63,18 +63,18 @@ print('Dataset size:', len(dataset), 'subjects')
 
 #%%
 
-normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
+normalization = tio.ZNormalization(masking_method='label')
 onehot = tio.OneHot()
 
 prefix += '_bias_flip_affine_noise'
 
-spatial = tio.RandomAffine(scales=0.05,degrees=10,p=0.75)
+spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 
-bias = tio.RandomBiasField(p=0.3)
+bias = tio.RandomBiasField(coefficients = 0.25, p=0.5)
 flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
-noise = tio.RandomNoise(std=0.25, p=0.25)
+noise = tio.RandomNoise(std=0.2, p=0.25)
 
-transforms = [bias, normalization, flip, spatial, noise, onehot]
+transforms = [flip, spatial, bias, normalization, noise, onehot]
 
 training_transform = tio.Compose(transforms)
 validation_transform = tio.Compose([normalization, onehot])
@@ -102,13 +102,14 @@ print('Validation set:', len(validation_set), 'subjects')
 #%%
 print('num_workers : '+str(num_workers))
 
-probabilities = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1}
-#sampler = tio.data.UniformSampler(patch_size)
-sampler = tio.data.LabelSampler(
-          patch_size=patch_size,
-          label_name='label',
-          label_probabilities=probabilities,
-)
+sampler = tio.data.UniformSampler(patch_size)
+
+# probabilities = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1}
+# sampler = tio.data.LabelSampler(
+#           patch_size=patch_size,
+#           label_name='label',
+#           label_probabilities=probabilities,
+# )
 
 patches_training_set = tio.Queue(
     subjects_dataset=training_set,
@@ -145,6 +146,7 @@ unet = monai.networks.nets.UNet(
     strides=(2, 2, 2),
     num_res_units=2,
 )    
+#unet.load_state_dict(torch.load(output_path+'unet3d_monai_dhcp_epochs_5_subj_400_patches_128_sampling_8_bias_flip_affine_noise_torch.pt'))
 
 #%%
 class Model(pl.LightningModule):
@@ -185,7 +187,9 @@ class Model(pl.LightningModule):
 net = Model(
     net=unet,
     criterion=monai.losses.DiceCELoss(softmax=True),
-    learning_rate=1e-2,
+    #criterion=monai.losses.GeneralizedDiceLoss(softmax=True),
+    #criterion=monai.losses.TverskyLoss(softmax=True),        
+    learning_rate=1e-4,
     optimizer_class=torch.optim.AdamW,
 )
 
