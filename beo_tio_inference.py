@@ -26,6 +26,7 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Input image', type=str, required=True)
   parser.add_argument('-m', '--model', help='Pytorch model', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output image', type=str, required=True)
+  parser.add_argument('-f', '--fuzzy', help='Output fuzzy image', type=str, required=False)
   parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 128)
   parser.add_argument('--patch_overlap', help='Patch overlap', type=int, required=False, default = 64)
   parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 2)
@@ -85,7 +86,13 @@ if __name__ == '__main__':
   output_tensor = torch.sigmoid(output_tensor)
 
   print(output_tensor.shape)
+  print('Saving images') 
 
-  print('Saving images')
-  output_seg = tio.ScalarImage(tensor=output_tensor, affine=subject['t2'].affine)
+  output_pred = torch.unsqueeze(torch.argmax(output_tensor,dim=0),0).int()
+  print(output_pred.shape)
+  output_seg = tio.ScalarImage(tensor=output_pred, affine=subject['t2'].affine)
   output_seg.save(args.output)
+
+  if args.fuzzy is not None:
+    output_seg = tio.ScalarImage(tensor=output_tensor, affine=subject['t2'].affine)
+    output_seg.save(args.fuzzy)  
