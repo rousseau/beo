@@ -77,10 +77,13 @@ if __name__ == '__main__':
 
   for i in range(args.test_time):
     if i == 0:
-      subj = normalization(subject)
+      augment = normalization
     else:
-      subj = normalization(spatial(subject))
+      augment = tio.Compose((normalization,spatial))
 
+    subj = augment(subject)
+
+    print(subj.get_composed_history())
 
     grid_sampler = tio.inference.GridSampler(
       subj,
@@ -99,8 +102,13 @@ if __name__ == '__main__':
         aggregator.add_batch(outputs, locations)
     output_tensor = aggregator.get_output_tensor()
     output_tensor = torch.sigmoid(output_tensor)
-    
-    output_tensors.append(torch.unsqueeze(output_tensor,0))
+
+    tmp = tio.ScalarImage(tensor=output_tensor, affine=subj.image.affine)
+    subj.add_image(tmp, 'label')
+
+    back = subj.apply_inverse_transform(image_interpolation='linear',warn=True)
+
+    output_tensors.append(torch.unsqueeze(back.label.data,0))
 
   output_tensor = torch.squeeze(torch.stack(output_tensors, dim=0).mean(dim=0))
   print(output_tensor.shape)
@@ -124,4 +132,3 @@ if __name__ == '__main__':
 
     print("DICE :")
     print(dice_val)
-
