@@ -52,9 +52,7 @@ if __name__ == '__main__':
       def forward(self,x):
           return self.net(x)
   
-  net = Model(
-    net=unet
-  )
+  net = Model(net=unet)
   net.eval()
   #%%
 
@@ -65,7 +63,7 @@ if __name__ == '__main__':
   #%%
   normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
   onehot = tio.OneHot()
-  spatial = tio.RandomAffine(scales=0.01,degrees=5,image_interpolation='bspline',p=1)
+  spatial = tio.RandomAffine(scales=0.05,degrees=10,image_interpolation='bspline',p=1)
 
   print('Inference')
 
