@@ -57,7 +57,7 @@ for seg_file in all_seg:
     
     subject = tio.Subject(
         t2=tio.ScalarImage(t2_file),
-        seg=tio.LabelMap(seg_file),
+        #seg=tio.LabelMap(seg_file),
     )
     subjects.append(subject)
 
@@ -69,7 +69,7 @@ one_subject = dataset[0]
 #one_subject.plot()
 print(one_subject)
 print(one_subject.t2)
-print(one_subject.seg)
+#print(one_subject.seg)
 
 #%%
 
@@ -78,21 +78,31 @@ onehot = tio.OneHot()
 
 prefix += '_bias_flip_elastic_noise'
 
-spatial = tio.OneOf({
-    tio.RandomAffine(scales=0.1,degrees=30): 0.8,
-    tio.RandomElasticDeformation(): 0.2,
-  },
-  p=0.75,
-)
+# spatial = tio.OneOf({
+#     tio.RandomAffine(scales=0.1,degrees=30): 0.8,
+#     tio.RandomElasticDeformation(): 0.2,
+#   },
+#   p=0.75,
+# )
+
+spatial = tio.RandomAffine(scales=0.05,degrees=10,p=0.75)
 
 bias = tio.RandomBiasField(p=0.3)
-flip = tio.RandomFlip()
-noise = tio.RandomNoise(p=0.5)
+flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
+noise = tio.RandomNoise(std=0.25, p=0.25)
 
-transforms = [bias, normalization, flip, spatial, noise, onehot]
+transforms = [bias, normalization, flip, spatial, noise, onehot]#, bias, normalization, flip, spatial, noise, onehot]
 
 training_transform = tio.Compose(transforms)
 validation_transform = tio.Compose([normalization, onehot])
+
+#subject = dataset[0]
+#transformed_subject = training_transform(subject)
+#transformed_subject.plot()
+
+
+#%%
+
 
 #training_transform = tio.Compose([
   #tio.ToCanonical(),
