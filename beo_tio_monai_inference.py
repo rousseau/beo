@@ -106,7 +106,7 @@ if __name__ == '__main__':
     tmp = tio.ScalarImage(tensor=output_tensor, affine=subj.image.affine)
     subj.add_image(tmp, 'label')
 
-    back = subj.apply_inverse_transform(image_interpolation='linear',warn=True)
+    back = subj.apply_inverse_transform(image_interpolation='linear')
 
     output_tensors.append(torch.unsqueeze(back.label.data,0))
 
@@ -127,6 +127,9 @@ if __name__ == '__main__':
   if args.ground_truth is not None:
     gt_image= onehot(tio.LabelMap(args.ground_truth))
     pred_image = onehot(output_seg)
+    
+    print(gt_image.data.shape)
+    print(pred_image.data.shape)
 
     dice_val = monai.metrics.compute_meandice(torch.unsqueeze(pred_image.data,0), torch.unsqueeze(gt_image.data,0), include_background=True)
 
