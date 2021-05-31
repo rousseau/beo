@@ -33,49 +33,75 @@ max_queue_length = 128
 
 n_channels = 32
 
-prefix = 'unet3d_monai_dhcp'
+data = 'equinus'
+
+prefix = 'unet3d_monai_'
+prefix += data
 prefix += '_epochs_'+str(num_epochs)
-prefix += '_subj_'+str(max_subjects)
 prefix += '_patches_'+str(patch_size)
 prefix += '_sampling_'+str(samples_per_volume)
 prefix += '_nchannels_'+str(n_channels)
 
-data_path = home+'/Sync/Data/DHCP/'
 output_path = home+'/Sync/Experiments/'
-
-all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
-all_t2s = glob.glob(data_path+'**/*desc-restore_T2w.nii.gz', recursive=True)
-
-all_seg = all_seg[:max_subjects] 
 subjects = []
 
-for seg_file in all_seg:
-    id_subject = seg_file.split('/')[6].split('_')[0:2]
-    id_subject = id_subject[0]+'_'+id_subject[1]
+if data == 'dhcp':
+    data_path = home+'/Sync/Data/DHCP/'
+    out_channels = 10
+    all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
+    all_t2s = glob.glob(data_path+'**/*desc-restore_T2w.nii.gz', recursive=True)
 
-    t2_file = [s for s in all_t2s if id_subject in s][0]
-    
-    subject = tio.Subject(
-        image=tio.ScalarImage(t2_file),
-        label=tio.LabelMap(seg_file),
-    )
-    subjects.append(subject)
+    all_seg = all_seg[:max_subjects] 
+
+    for seg_file in all_seg:
+        id_subject = seg_file.split('/')[6].split('_')[0:2]
+        id_subject = id_subject[0]+'_'+id_subject[1]
+
+        t2_file = [s for s in all_t2s if id_subject in s][0]
+        
+        subject = tio.Subject(
+            image=tio.ScalarImage(t2_file),
+            label=tio.LabelMap(seg_file),
+        )
+        subjects.append(subject)
+
+if data=='equinus':
+    data_path = home+'/Sync/Data/Equinus_Learning/'
+    out_channels = 4
+    subject_names = ['E01','E02','E03','E05','E06','E08','E10','T01','T02','T03','T04','T05','T06','T08','T10','T11']
+    subjects = []
+
+    for s in subject_names:
+        
+        subject = tio.Subject(
+            image=tio.ScalarImage(data_path+'sub_'+s+'_static_3DT1_flirt.nii.gz'),
+            label=tio.LabelMap(data_path+'sub_'+s+'_static_3DT1_labels_flirt.nii.gz'),
+        )
+        subjects.append(subject)
+
 
 dataset = tio.SubjectsDataset(subjects)
 print('Dataset size:', len(dataset), 'subjects')
+prefix += '_subj_'+str(len(dataset))
+
 
 #%%
-
-normalization = tio.ZNormalization(masking_method='label')
 onehot = tio.OneHot()
-
+flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
 prefix += '_bias_flip_affine_noise'
 
-spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
+if data=='dhcp':
+    normalization = tio.ZNormalization(masking_method='label')
+    spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
+    bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
+    noise = tio.RandomNoise(std=0.1, p=0.25)
 
-bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
-flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
-noise = tio.RandomNoise(std=0.1, p=0.25)
+if data=='equinus':
+  normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
+  spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
+  bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
+  noise = tio.RandomNoise(std=0.1, p=0.25)
+
 
 transforms = [flip, spatial, bias, normalization, noise, onehot]
 
@@ -144,7 +170,7 @@ validation_loader_patches = torch.utils.data.DataLoader(
 unet = monai.networks.nets.UNet(
     dimensions=3,
     in_channels=1,
-    out_channels=10,
+    out_channels=out_channels,
     channels=(n_channels, n_channels*2, n_channels*4),
     strides=(2, 2, 2),
     num_res_units=2,
