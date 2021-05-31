@@ -65,7 +65,7 @@ if __name__ == '__main__':
   #%%
   normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
   onehot = tio.OneHot()
-  spatial = tio.RandomAffine(scales=0.05,degrees=10,image_interpolation='bspline',p=1)
+  spatial = tio.RandomAffine(scales=0.05,degrees=10,translation=5,image_interpolation='bspline',p=1)
   flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
 
   print('Inference')
