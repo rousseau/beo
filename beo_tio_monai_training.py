@@ -88,20 +88,17 @@ prefix += '_subj_'+str(len(dataset))
 #%%
 onehot = tio.OneHot()
 flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
+bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
+noise = tio.RandomNoise(std=0.1, p=0.25)
 prefix += '_bias_flip_affine_noise'
 
 if data=='dhcp':
     normalization = tio.ZNormalization(masking_method='label')
     spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
-    bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
-    noise = tio.RandomNoise(std=0.1, p=0.25)
 
 if data=='equinus':
   normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
   spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
-  bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
-  noise = tio.RandomNoise(std=0.1, p=0.25)
-
 
 transforms = [flip, spatial, bias, normalization, noise, onehot]
 
