@@ -31,11 +31,14 @@ patch_size = 128
 samples_per_volume = 8
 max_queue_length = 128
 
+n_channels = 32
+
 prefix = 'unet3d_monai_dhcp'
 prefix += '_epochs_'+str(num_epochs)
 prefix += '_subj_'+str(max_subjects)
 prefix += '_patches_'+str(patch_size)
 prefix += '_sampling_'+str(samples_per_volume)
+prefix += '_nchannels_'+str(n_channels)
 
 data_path = home+'/Sync/Data/DHCP/'
 output_path = home+'/Sync/Experiments/'
@@ -43,7 +46,7 @@ output_path = home+'/Sync/Experiments/'
 all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
 all_t2s = glob.glob(data_path+'**/*desc-restore_T2w.nii.gz', recursive=True)
 
-all_seg = all_seg[:max_subjects]
+all_seg = all_seg[:max_subjects] 
 subjects = []
 
 for seg_file in all_seg:
@@ -70,9 +73,9 @@ prefix += '_bias_flip_affine_noise'
 
 spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 
-bias = tio.RandomBiasField(coefficients = 0.25, p=0.5)
+bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
 flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
-noise = tio.RandomNoise(std=0.2, p=0.25)
+noise = tio.RandomNoise(std=0.1, p=0.25)
 
 transforms = [flip, spatial, bias, normalization, noise, onehot]
 
@@ -142,7 +145,7 @@ unet = monai.networks.nets.UNet(
     dimensions=3,
     in_channels=1,
     out_channels=10,
-    channels=(16, 32, 64),
+    channels=(n_channels, n_channels*2, n_channels*4),
     strides=(2, 2, 2),
     num_res_units=2,
 )    
