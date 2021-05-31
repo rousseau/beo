@@ -29,6 +29,8 @@ if __name__ == '__main__':
   parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 2)
   parser.add_argument('-g', '--ground_truth', help='Ground truth for metric computation', type=str, required=False)
   parser.add_argument('-t', '--test_time', help='Number of inferences for test-time augmentation', type=int, required=False, default=1)
+  parser.add_argument('-c', '--channels', help='Number of channels', type=int, required=False, default=16)
+  parser.add_argument('--classes', help='Number of classes', type=int, required=False, default=10)
 
   args = parser.parse_args()
 
@@ -36,8 +38,8 @@ if __name__ == '__main__':
   unet = monai.networks.nets.UNet(
       dimensions=3,
       in_channels=1,
-      out_channels=10,
-      channels=(16, 32, 64),
+      out_channels=args.classes,
+      channels=(args.channels, args.channels*2, args.channels*4),
       strides=(2, 2, 2),
       num_res_units=2,
   )
@@ -64,6 +66,7 @@ if __name__ == '__main__':
   normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
   onehot = tio.OneHot()
   spatial = tio.RandomAffine(scales=0.05,degrees=10,image_interpolation='bspline',p=1)
+  flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
 
   print('Inference')
 
@@ -77,7 +80,7 @@ if __name__ == '__main__':
     if i == 0:
       augment = normalization
     else:
-      augment = tio.Compose((normalization,spatial))
+      augment = tio.Compose((normalization,flip, spatial))
 
     subj = augment(subject)
 
