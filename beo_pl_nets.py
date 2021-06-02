@@ -66,7 +66,7 @@ class Unet(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         patches_batch = batch
         x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['seg'][tio.DATA]
+        y = patches_batch['label'][tio.DATA]
         y_hat = self(x)
 
         criterion = nn.BCEWithLogitsLoss()
@@ -77,7 +77,7 @@ class Unet(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         patches_batch = batch
         x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['seg'][tio.DATA]
+        y = patches_batch['label'][tio.DATA]
         y_hat = self(x)
 
         criterion = nn.BCEWithLogitsLoss()
@@ -159,18 +159,20 @@ class Reconstruction(torch.nn.Module):
     return self.recon(x)    
 
 class Feature2Segmentation(torch.nn.Module):
-  def __init__(self, in_channels, out_channels):
+  def __init__(self, in_channels, out_channels, n_filters = 16):
     super(Feature2Segmentation, self).__init__()
     
     # self.seg = nn.Sequential(
     #   nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
     #   #nn.Sigmoid()
     #   )  
+    self.n_filters = n_filters
+
     self.seg = monai.networks.nets.UNet(
                 dimensions=3,
                 in_channels=in_channels,
                 out_channels=out_channels,
-                channels=(n_filters, n_filters*2, n_filters*4),
+                channels=(self.n_filters, self.n_filters*2, self.n_filters*4),
                 strides=(2, 2, 2),
                 num_res_units=2,
                 )
@@ -192,11 +194,10 @@ class DecompNet(pl.LightningModule):
     self.n_filters_recon = 4
     self.n_filters_seg = 4
 
-
     self.encoder = Encoder(latent_dim, self.n_filters_encoder, patch_size)
     self.feature = Feature(1, self.n_features, self.n_filters_feature)
     self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
-    self.segmenter = Feature2Segmentation(self.n_filters_seg, self.n_classes)
+    self.segmenter = Feature2Segmentation(self.n_features, self.n_classes, self.n_filters_seg)
 
     self.lw = {}
     self.lw['rx'] = 0 #reconstruction-based loss
@@ -244,7 +245,7 @@ class DecompNet(pl.LightningModule):
     patches_batch = batch
     x = patches_batch['t1'][tio.DATA]
     y = patches_batch['t2'][tio.DATA]
-    s = patches_batch['seg'][tio.DATA]
+    s = patches_batch['label'][tio.DATA]
     
     rx, ry, cx, cy, fx, fy, sx, sy = self(x,y)
 
@@ -272,7 +273,7 @@ class DecompNet(pl.LightningModule):
     patches_batch = batch
     x = patches_batch['t1'][tio.DATA]
     y = patches_batch['t2'][tio.DATA]
-    s = patches_batch['seg'][tio.DATA]
+    s = patches_batch['label'][tio.DATA]
     
     bce = nn.BCEWithLogitsLoss()
     x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
