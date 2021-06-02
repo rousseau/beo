@@ -12,6 +12,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.nn.modules.activation import Sigmoid
 import torchio as tio
+import monai
 
 
 class Unet(pl.LightningModule):
@@ -96,17 +97,17 @@ class Encoder(torch.nn.Module):
     n = 2*2*2    #3 layers of stride 2 : 64/8 * 64/8 * 64/8 * 16 -> 8192 hidden dim !
     #patch_size = 128
     n = 2*2*2*2    #4 layers of stride 2 : 128/16 * 128/16 * 128/16 * 32
-    self.hidden_dim = int((patch_size / n)*(patch_size / n)*(patch_size / n)*n_filters)
+    self.hidden_dim = int((patch_size / n)*(patch_size / n)*(patch_size / n)*n_filters*8)
     self.latent_dim = int(latent_dim) 
 
     self.enc = nn.Sequential(
       nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
+      nn.Conv3d(in_channels = n_filters, out_channels = n_filters*2, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
+      nn.Conv3d(in_channels = n_filters*2, out_channels = n_filters*4, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
+      nn.Conv3d(in_channels = n_filters*4, out_channels = n_filters*8, kernel_size = 3,stride = 2, padding=1),
       nn.Tanh(),
       nn.Flatten(),
       nn.Linear(self.hidden_dim,self.latent_dim)
@@ -119,7 +120,15 @@ class Feature(torch.nn.Module):
   def __init__(self, n_channels = 1, n_features = 10, n_filters = 32):
     super(Feature, self).__init__()
 
-    self.unet = Unet(n_channels = n_channels, n_classes = n_features, n_features = n_filters)
+    #self.unet = Unet(n_channels = n_channels, n_classes = n_features, n_features = n_filters)
+    self.unet = monai.networks.nets.UNet(
+                dimensions=3,
+                in_channels=n_channels,
+                out_channels=n_features,
+                channels=(n_filters, n_filters*2, n_filters*4),
+                strides=(2, 2, 2),
+                num_res_units=2,
+                )   
 
   def forward(self,x):
     xout = self.unet(x)
@@ -130,13 +139,22 @@ class Reconstruction(torch.nn.Module):
   def __init__(self, in_channels, n_filters = 16):
     super(Reconstruction, self).__init__()
     
-    self.recon = nn.Sequential(
-      nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-      nn.ReLU(),
-      nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 3,stride = 1, padding=1)
-      )      
+    # self.recon = nn.Sequential(
+    #   nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+    #   nn.ReLU(),
+    #   nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+    #   nn.ReLU(),
+    #   nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 3,stride = 1, padding=1)
+    #   )    
+    self.recon = monai.networks.nets.UNet(
+                dimensions=3,
+                in_channels=in_channels,
+                out_channels=1,
+                channels=(n_filters, n_filters*2, n_filters*4),
+                strides=(2, 2, 2),
+                num_res_units=2,
+                )
+
   def forward(self,x):
     return self.recon(x)    
 
@@ -144,10 +162,19 @@ class Feature2Segmentation(torch.nn.Module):
   def __init__(self, in_channels, out_channels):
     super(Feature2Segmentation, self).__init__()
     
-    self.seg = nn.Sequential(
-      nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
-      #nn.Sigmoid()
-      )      
+    # self.seg = nn.Sequential(
+    #   nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
+    #   #nn.Sigmoid()
+    #   )  
+    self.seg = monai.networks.nets.UNet(
+                dimensions=3,
+                in_channels=in_channels,
+                out_channels=out_channels,
+                channels=(n_filters, n_filters*2, n_filters*4),
+                strides=(2, 2, 2),
+                num_res_units=2,
+                )
+
   def forward(self,x):
     return self.seg(x)        
 
@@ -159,10 +186,17 @@ class DecompNet(pl.LightningModule):
     self.latent_dim = int(latent_dim) 
     self.n_classes = 10
 
-    self.encoder = Encoder(latent_dim, n_filters, patch_size)
-    self.feature = Feature(1, n_filters, n_filters)
-    self.reconstruction = Reconstruction(n_filters+self.latent_dim, n_filters)
-    self.segmenter = Feature2Segmentation(n_filters, self.n_classes)
+    self.n_filters_encoder = 4
+    self.n_filters_feature = 4
+    self.n_features = 16
+    self.n_filters_recon = 4
+    self.n_filters_seg = 4
+
+
+    self.encoder = Encoder(latent_dim, self.n_filters_encoder, patch_size)
+    self.feature = Feature(1, self.n_features, self.n_filters_feature)
+    self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
+    self.segmenter = Feature2Segmentation(self.n_filters_seg, self.n_classes)
 
     self.lw = {}
     self.lw['rx'] = 0 #reconstruction-based loss
