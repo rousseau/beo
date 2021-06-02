@@ -25,11 +25,13 @@ max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
 
-num_workers = 8#multiprocessing.cpu_count()
+num_workers = 6#multiprocessing.cpu_count()
 training_batch_size = 4
 validation_batch_size = 4 
-patch_size = 64
-max_queue_length = 1024
+patch_size = 128
+patch_overlap = patch_size / 2  
+
+max_queue_length = 128
 
 #num_workers = 0#multiprocessing.cpu_count()
 #training_batch_size = 1
@@ -37,7 +39,7 @@ max_queue_length = 1024
 #patch_size = 128
 #max_queue_length = 256
 
-samples_per_volume = 32
+samples_per_volume = 8
 
 latent_dim = 10
 n_filters = 32
@@ -70,7 +72,7 @@ for t1_file in all_t1s:
     subject = tio.Subject(
         t1=tio.ScalarImage(t1_file),
         t2=tio.ScalarImage(t2_file),
-        seg=tio.LabelMap(seg_file),
+        label=tio.LabelMap(seg_file),
     )
     subjects.append(subject)
 
@@ -78,21 +80,16 @@ dataset = tio.SubjectsDataset(subjects)
 print('Dataset size:', len(dataset), 'subjects')
 
 #%%
-normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
+normalization = tio.ZNormalization(masking_method='label')
 onehot = tio.OneHot()
 
-spatial = tio.OneOf({
-    tio.RandomAffine(scales=0.1,degrees=30): 0.8,
-    #tio.RandomElasticDeformation(): 0.2,
-  },
-  p=0.75,
-)
+spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 
-bias = tio.RandomBiasField(p=0.3)
-flip = tio.RandomFlip()
-noise = tio.RandomNoise(p=0.5)
+bias = tio.RandomBiasField(coefficients = 0.5, p=0.3)
+flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
+noise = tio.RandomNoise(std=0.1, p=0.25)
 
-transforms = [bias, normalization, flip, spatial, noise, onehot]
+transforms = [flip, spatial, bias, normalization, noise, onehot]
 
 training_transform = tio.Compose(transforms)
 validation_transform = tio.Compose([normalization, onehot])
@@ -121,13 +118,13 @@ print('Validation set:', len(validation_set), 'subjects')
 
 print('num_workers : '+str(num_workers))
 
-probabilities = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1}
-#sampler = tio.data.UniformSampler(patch_size)
-sampler = tio.data.LabelSampler(
-          patch_size=patch_size,
-          label_name='seg',
-          label_probabilities=probabilities,
-)
+sampler = tio.data.UniformSampler(patch_size)
+#probabilities = {0: 0, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1}
+#sampler = tio.data.LabelSampler(
+#          patch_size=patch_size,
+#          label_name='label',
+#          label_probabilities=probabilities,
+#)
 
 patches_training_set = tio.Queue(
     subjects_dataset=training_set,
@@ -177,9 +174,6 @@ print('Finished Training')
 
 #%%
 print('Inference')
-
-patch_overlap = 32  
-patch_size = 64
 
 subject = validation_set[0]
 
@@ -243,4 +237,4 @@ o_sy.save(output_path+'gromov_sy.nii.gz')
 
 subject['t2'].save(output_path+'gromov_t2.nii.gz')
 subject['t1'].save(output_path+'gromov_t1.nii.gz')
-subject['seg'].save(output_path+'gromov_seg.nii.gz')
+subject['label'].save(output_path+'gromov_seg.nii.gz')
