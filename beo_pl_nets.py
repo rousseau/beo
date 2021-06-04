@@ -90,7 +90,7 @@ class Unet(pl.LightningModule):
 
 
 class Encoder(torch.nn.Module):
-  def __init__(self, latent_dim = 32, n_filters = 16, patch_size = 64): 
+  def __init__(self, in_channels = 1, latent_dim = 32, n_filters = 16, patch_size = 64): 
     super(Encoder, self).__init__()
     
     #patch_size = 64
@@ -101,7 +101,7 @@ class Encoder(torch.nn.Module):
     self.latent_dim = int(latent_dim) 
 
     self.enc = nn.Sequential(
-      nn.Conv3d(in_channels = 1, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
+      nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
       nn.Conv3d(in_channels = n_filters, out_channels = n_filters*2, kernel_size = 3,stride = 2, padding=1),
       nn.ReLU(),
@@ -132,7 +132,7 @@ class Feature(torch.nn.Module):
 
   def forward(self,x):
     xout = self.unet(x)
-    return nn.Tanh()(xout)
+    return nn.ReLU()(xout)
     
 
 class Reconstruction(torch.nn.Module):
@@ -188,19 +188,19 @@ class DecompNet(pl.LightningModule):
     self.latent_dim = int(latent_dim) 
     self.n_classes = 10
 
-    self.n_filters_encoder = 4
-    self.n_filters_feature = 4
+    self.n_filters_encoder = int(n_filters/2)
+    self.n_filters_feature = n_filters
     self.n_features = 16
-    self.n_filters_recon = 4
-    self.n_filters_seg = 4
+    self.n_filters_recon = n_filters
+    self.n_filters_seg = n_filters
 
-    self.encoder = Encoder(latent_dim, self.n_filters_encoder, patch_size)
+    self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
     self.feature = Feature(1, self.n_features, self.n_filters_feature)
     self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
     self.segmenter = Feature2Segmentation(self.n_features, self.n_classes, self.n_filters_seg)
 
     self.lw = {}
-    self.lw['rx'] = 0 #reconstruction-based loss
+    self.lw['rx'] = 1 #reconstruction-based loss
     self.lw['sx'] = 1 #segmentation loss    
     self.lw['cx'] = 0 #cross-reconstruction loss
     self.lw['ry'] = 0 #reconstruction-based loss
@@ -208,18 +208,22 @@ class DecompNet(pl.LightningModule):
     self.lw['cy'] = 0 #cross-reconstruction loss
 
 
-  def forward(self,x,y): 
-    
-    zx = self.encoder(x)
+  def forward(self,x,y):     
     fx = self.feature(x)
+
+    xfx = torch.cat([x,fx], dim=1)
+    zx = self.encoder(xfx)
 
     zx = zx.view(-1,self.latent_dim,1,1,1)
     zfx = zx.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
     fxzfx = torch.cat([fx,zfx], dim=1)
     rx = self.reconstruction(fxzfx)
 
-    zy = self.encoder(y)
     fy = self.feature(y)
+
+    yfy = torch.cat([y,fy], dim=1)
+    zy = self.encoder(yfy)
+
     zy = zy.view(-1,self.latent_dim,1,1,1)    
     zfy = zy.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
     fyzfy = torch.cat([fy,zfy], dim=1)
