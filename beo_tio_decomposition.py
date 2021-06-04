@@ -25,24 +25,18 @@ max_subjects = 100
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
 num_epochs = 5
 
-num_workers = 6#multiprocessing.cpu_count()
-training_batch_size = 4
-validation_batch_size = 4 
+num_workers = 0#multiprocessing.cpu_count()
+training_batch_size = 1
+validation_batch_size = 1 
 patch_size = 128
-patch_overlap = patch_size / 2  
+patch_overlap = int(patch_size / 2)  
 
-max_queue_length = 128
-
-#num_workers = 0#multiprocessing.cpu_count()
-#training_batch_size = 1
-#validation_batch_size = 1 
-#patch_size = 128
-#max_queue_length = 256
+max_queue_length = 32
 
 samples_per_volume = 8
 
 latent_dim = 10
-n_filters = 32
+n_filters = 16
 
 prefix = 'gromov'
 prefix += '_epochs_'+str(num_epochs)
@@ -217,6 +211,8 @@ output_fx = aggregator_fx.get_output_tensor()
 output_fy = aggregator_fy.get_output_tensor()
 output_sx = aggregator_sx.get_output_tensor()
 output_sy = aggregator_sy.get_output_tensor()
+
+print('Saving images...')
 
 o_xhat = tio.ScalarImage(tensor=output_xhat, affine=subject['t1'].affine)
 o_xhat.save(output_path+'gromov_xhat.nii.gz')
