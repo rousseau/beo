@@ -37,7 +37,7 @@ if __name__ == '__main__':
   args = parser.parse_args()
   
   max_subjects = 400
-  training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
+  training_split_ratio = 0.95 # use 90% of samples for training, 10% for testing
   num_epochs = args.epochs
   num_workers = args.workers#multiprocessing.cpu_count()
   
@@ -87,7 +87,7 @@ if __name__ == '__main__':
   if data=='equinus':
     data_path = home+'/Sync/Data/Equinus_Learning/'
     out_channels = 4
-    subject_names = ['E01','E02','E03','E05','E06','E08','E10','T01','T02','T03','T04','T05','T06','T08','T10','T11']
+    subject_names = ['E01','E02','E03','E05','E06','E09','E08','E10','T01','T02','T03','T04','T05','T06','T07','T08','T10','T11']
     subjects = []
 
     for s in subject_names:
@@ -116,7 +116,13 @@ if __name__ == '__main__':
 
   if data=='equinus':
     normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
-    spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
+    #spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
+    spatial = tio.OneOf({
+        tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0): 0.8,
+        tio.RandomElasticDeformation(): 0.2,
+    },
+    p=0.75,
+    )  
 
   transforms = [flip, spatial, bias, normalization, noise, onehot]
 
