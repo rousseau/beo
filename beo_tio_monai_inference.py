@@ -31,6 +31,8 @@ if __name__ == '__main__':
   parser.add_argument('-t', '--test_time', help='Number of inferences for test-time augmentation', type=int, required=False, default=1)
   parser.add_argument('-c', '--channels', help='Number of channels', type=int, required=False, default=16)
   parser.add_argument('--classes', help='Number of classes', type=int, required=False, default=10)
+  parser.add_argument('-s', '--scales', help='Scaling factor (test-time augmentation)', type=float, required=False, default=0.05)
+  parser.add_argument('-d', '--degrees', help='Rotation degrees (test-time augmentation)', type=int, required=False, default=10)
 
   args = parser.parse_args()
 
@@ -65,7 +67,7 @@ if __name__ == '__main__':
   #%%
   normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
   onehot = tio.OneHot()
-  spatial = tio.RandomAffine(scales=0.05,degrees=10,translation=5,image_interpolation='bspline',p=1)
+  spatial = tio.RandomAffine(scales=args.scales,degrees=args.degrees,translation=5,image_interpolation='bspline',p=1)
   flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
 
   print('Inference')
