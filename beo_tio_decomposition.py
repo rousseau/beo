@@ -21,9 +21,9 @@ import multiprocessing
 
 from beo_pl_nets import DecompNet
 
-max_subjects = 100
+max_subjects = 200
 training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
-num_epochs = 5
+num_epochs = 2
 
 num_workers = 0#multiprocessing.cpu_count()
 training_batch_size = 1
@@ -35,7 +35,7 @@ max_queue_length = 32
 
 samples_per_volume = 8
 
-latent_dim = 10
+latent_dim = 10 
 n_filters = 16
 
 prefix = 'gromov'
@@ -148,7 +148,8 @@ validation_loader_patches = torch.utils.data.DataLoader(
 
 #%%
 
-net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
+#net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
+net = DecompNet().load_from_checkpoint('gromov_epochs_1_subj_400_patches_128_sampling_8_latentdim_10_nfilters_16.ckpt', latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
 
 checkpoint_callback = ModelCheckpoint(
   dirpath=output_path,
@@ -210,7 +211,7 @@ output_ry = aggregator_ry.get_output_tensor()
 output_fx = aggregator_fx.get_output_tensor()
 output_fy = aggregator_fy.get_output_tensor()
 output_sx = aggregator_sx.get_output_tensor()
-output_sy = aggregator_sy.get_output_tensor()
+output_sy = aggregator_sy.get_output_tensor() 
 
 print('Saving images...')
 
@@ -230,6 +231,15 @@ o_sx = tio.ScalarImage(tensor=output_sx, affine=subject['t1'].affine)
 o_sx.save(output_path+'gromov_sx.nii.gz')
 o_sy = tio.ScalarImage(tensor=output_sy, affine=subject['t1'].affine)
 o_sy.save(output_path+'gromov_sy.nii.gz')
+
+
+o_sx_bin = torch.unsqueeze(torch.argmax(output_sx,dim=0),0).int()
+o_sx_bin = tio.LabelMap(tensor=o_sx_bin, affine=subject['t1'].affine)
+o_sx_bin.save(output_path+'gromov_sx_labels.nii.gz')
+
+o_sy_bin = torch.unsqueeze(torch.argmax(output_sy,dim=0),0).int()
+o_sy_bin = tio.LabelMap(tensor=o_sy_bin, affine=subject['t1'].affine)
+o_sy_bin.save(output_path+'gromov_sy_labels.nii.gz')
 
 subject['t2'].save(output_path+'gromov_t2.nii.gz')
 subject['t1'].save(output_path+'gromov_t1.nii.gz')
