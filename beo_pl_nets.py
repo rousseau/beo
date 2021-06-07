@@ -132,8 +132,8 @@ class Feature(torch.nn.Module):
 
   def forward(self,x):
     xout = self.unet(x)
-    return nn.ReLU()(xout)
-    
+    #return nn.ReLU()(xout)
+    return nn.Tanh()(xout)    
 
 class Reconstruction(torch.nn.Module):
   def __init__(self, in_channels, n_filters = 16):
@@ -203,8 +203,8 @@ class DecompNet(pl.LightningModule):
     self.lw['rx'] = 1 #reconstruction-based loss
     self.lw['sx'] = 1 #segmentation loss    
     self.lw['cx'] = 0 #cross-reconstruction loss
-    self.lw['ry'] = 0 #reconstruction-based loss
-    self.lw['sy'] = 0 #segmentation loss   
+    self.lw['ry'] = 1 #reconstruction-based loss
+    self.lw['sy'] = 1 #segmentation loss   
     self.lw['cy'] = 0 #cross-reconstruction loss
 
 
@@ -277,7 +277,7 @@ class DecompNet(pl.LightningModule):
     patches_batch = batch
     x = patches_batch['t1'][tio.DATA]
     y = patches_batch['t2'][tio.DATA]
-    s = patches_batch['label'][tio.DATA]
+    s = patches_batch['label'][tio.DATA] 
     
     bce = nn.BCEWithLogitsLoss()
     x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
