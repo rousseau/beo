@@ -14,6 +14,11 @@ from torch.nn.modules.activation import Sigmoid
 import torchio as tio
 import monai
 
+def total_variation(x):
+  return torch.sum(torch.abs(x[:, :, :, :, :-1] - x[:, :, :, :, 1:])) + \
+    torch.sum(torch.abs(x[:, :, :, :-1, :] - x[:, :, :, 1:, :])) +\
+    torch.sum(torch.abs(x[:, :, :-1, :, :] - x[:, :, 1:, :, :]))      
+
 
 class Unet(pl.LightningModule):
     def __init__(self, n_channels = 1, n_classes = 10, n_features = 32):
@@ -269,6 +274,8 @@ class DecompNet(pl.LightningModule):
       if k == 'sy' and self.lw[k] > 0:
         loss += bce(sy, s.float())
 
+    tvloss = total_variation(fx) + total_variation(fy)
+    loss += 0.0000001 * tvloss
     #loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s.float()) + F.mse_loss(sy, s.float())
     self.log('train_loss', loss)
     return loss
