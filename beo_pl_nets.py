@@ -187,7 +187,7 @@ class Feature2Segmentation(torch.nn.Module):
 
 class DecompNet(pl.LightningModule):
 
-  def __init__(self, latent_dim = 32, n_filters = 16, patch_size = 64):
+  def __init__(self, latent_dim = 32, n_filters = 16, n_features = 16, patch_size = 64):
     super().__init__()
     self.patch_size = patch_size
     self.latent_dim = int(latent_dim) 
@@ -195,7 +195,7 @@ class DecompNet(pl.LightningModule):
 
     self.n_filters_encoder = int(n_filters/2)
     self.n_filters_feature = n_filters
-    self.n_features = 16
+    self.n_features = n_features
     self.n_filters_recon = n_filters
     self.n_filters_seg = n_filters
 
@@ -208,9 +208,12 @@ class DecompNet(pl.LightningModule):
     self.lw['rx'] = 1 #reconstruction-based loss
     self.lw['sx'] = 1 #segmentation loss    
     self.lw['cx'] = 0 #cross-reconstruction loss
-    self.lw['ry'] = 1 #reconstruction-based loss
-    self.lw['sy'] = 1 #segmentation loss   
+    self.lw['ry'] = 0 #reconstruction-based loss
+    self.lw['sy'] = 0 #segmentation loss   
     self.lw['cy'] = 0 #cross-reconstruction loss
+    self.lw['tvx'] = 0 #total variation loss
+    self.lw['tvy'] = 0 #total variation loss
+    self.lw['fxfy'] = 0 #shared feature-based loss
 
 
   def forward(self,x,y):     
@@ -262,21 +265,24 @@ class DecompNet(pl.LightningModule):
     loss = 0
     for k in self.lw.keys():
       if k == 'rx' and self.lw[k] > 0:
-        loss += F.mse_loss(rx, x)
+        loss += self.lw[k] * F.mse_loss(rx, x)
       if k == 'ry' and self.lw[k] > 0:
-        loss += F.mse_loss(ry, y)
+        loss += self.lw[k] * F.mse_loss(ry, y)
       if k == 'cx' and self.lw[k] > 0:
-        loss += F.mse_loss(cx, x)
+        loss += self.lw[k] * F.mse_loss(cx, x)
       if k == 'cy' and self.lw[k] > 0:
-        loss += F.mse_loss(cy, y)
+        loss += self.lw[k] * F.mse_loss(cy, y)
       if k == 'sx' and self.lw[k] > 0:
-        loss += bce(sx, s.float())
+        loss += self.lw[k] * bce(sx, s.float())
       if k == 'sy' and self.lw[k] > 0:
-        loss += bce(sy, s.float())
+        loss += self.lw[k] * bce(sy, s.float())
+      if k == 'tvx' and self.lw[k] > 0:
+        loss += self.lw[k] * total_variation(fx)
+      if k == 'tvy' and self.lw[k] > 0:
+        loss += self.lw[k] * total_variation(fy)
+      if k == 'fxfy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(fx, fy) 
 
-    tvloss = total_variation(fx) + total_variation(fy)
-    loss += 0.0000001 * tvloss
-    #loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + F.mse_loss(rx, x) + F.mse_loss(ry, y) + F.mse_loss(fx, fy) + F.mse_loss(sx, s.float()) + F.mse_loss(sy, s.float())
     self.log('train_loss', loss)
     return loss
 
@@ -302,7 +308,12 @@ class DecompNet(pl.LightningModule):
         loss += bce(sx, s.float())
       if k == 'sy' and self.lw[k] > 0:
         loss += bce(sy, s.float())
-    #loss = F.mse_loss(x_hat, x) + F.mse_loss(y_hat, y) + bce(sx, s.float()) + bce(sy, s.float()) + F.mse_loss(rx, x) + F.mse_loss(ry, y)        
+      if k == 'tvx' and self.lw[k] > 0:
+        loss += self.lw[k] * total_variation(fx)
+      if k == 'tvy' and self.lw[k] > 0:
+        loss += self.lw[k] * total_variation(fy)
+      if k == 'fxfy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(fx, fy) 
 
     self.log('val_loss', loss)
     return loss
