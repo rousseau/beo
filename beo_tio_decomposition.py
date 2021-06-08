@@ -26,17 +26,20 @@ import argparse
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Beo TorchIO Decomposition')
   parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 50)
+  parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) initialization model', type=str, required=False)
   parser.add_argument('-l', '--latent_dim', help='Dimension of the latent space', type=int, required=False, default = 10)
   parser.add_argument('-f', '--n_filters', help='Number of filters', type=int, required=False, default = 16)
+  parser.add_argument('--n_features', help='Number of features', type=int, required=False, default = 16)
   parser.add_argument('-w', '--workers', help='Number of workers (multiprocessing)', type=int, required=False, default = 0)
-  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 4)
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1)
   parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 128)
   parser.add_argument('-s', '--samples', help='Samples per volume', type=int, required=False, default = 8)
   parser.add_argument('-q', '--queue', help='Max queue length', type=int, required=False, default = 32)
+  parser.add_argument('--max_subjects', help='Max number of subjects', type=int, required=False, default = 100)
 
   args = parser.parse_args()
 
-  max_subjects = 200
+  max_subjects = args.max_subjects
   training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
   num_epochs = args.epochs
   num_workers = args.workers#multiprocessing.cpu_count()
@@ -53,6 +56,8 @@ if __name__ == '__main__':
 
   latent_dim = args.latent_dim 
   n_filters = args.n_filters
+  n_features = args.n_features
+
   prefix = 'gromov'
   prefix += '_epochs_'+str(num_epochs)
   prefix += '_subj_'+str(max_subjects)
@@ -60,6 +65,7 @@ if __name__ == '__main__':
   prefix += '_sampling_'+str(samples_per_volume)
   prefix += '_latentdim_'+str(latent_dim)
   prefix += '_nfilters_'+str(n_filters)
+  prefix += '_nfeatures_'+str(n_features)
 
   data_path = home+'/Sync/Data/DHCP/'
   output_path = home+'/Sync/Experiments/'
@@ -105,7 +111,6 @@ if __name__ == '__main__':
 
   #%%
   seed = 42  # for reproducibility
-
 
   num_subjects = len(dataset)
   num_training_subjects = int(training_split_ratio * num_subjects)
@@ -162,9 +167,10 @@ if __name__ == '__main__':
       patches_validation_set, batch_size=validation_batch_size)
 
   #%%
-
-  #net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
-  net = DecompNet().load_from_checkpoint('gromov_epochs_40_subj_100_patches_128_sampling_8_latentdim_10_nfilters_16.ckpt', latent_dim = latent_dim, n_filters = n_filters, patch_size = patch_size)
+  if args.model is not None:
+    net = DecompNet().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size)
+  else:
+    net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size)
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
@@ -178,7 +184,6 @@ if __name__ == '__main__':
 
   trainer.fit(net, training_loader_patches, validation_loader_patches)
   trainer.save_checkpoint(output_path+prefix+'.ckpt')
-  #net = DecompNet.load_from_checkpoint(checkpoint_path=output_path+prefix+'.ckpt')
 
   print('Finished Training')
 
@@ -194,10 +199,10 @@ if __name__ == '__main__':
     )
 
   patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=1)
-  aggregator_xhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_yhat = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
   aggregator_rx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
   aggregator_ry = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+  aggregator_cx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+  aggregator_cy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
   aggregator_fx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
   aggregator_fy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
   aggregator_sx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
@@ -209,20 +214,20 @@ if __name__ == '__main__':
       x_tensor = patches_batch['t1'][tio.DATA]
       y_tensor = patches_batch['t2'][tio.DATA]
       locations = patches_batch[tio.LOCATION]
-      x_hat, y_hat, rx, ry, fx, fy, sx, sy = net(x_tensor, y_tensor)
-      aggregator_xhat.add_batch(x_hat, locations)
-      aggregator_yhat.add_batch(y_hat, locations)
+      rx, ry, cx, cy, fx, fy, sx, sy = net(x_tensor, y_tensor)
       aggregator_rx.add_batch(rx, locations)
       aggregator_ry.add_batch(ry, locations)
+      aggregator_cx.add_batch(cx, locations)
+      aggregator_cy.add_batch(cy, locations)
       aggregator_fx.add_batch(fx, locations)
       aggregator_fy.add_batch(fy, locations)
       aggregator_sx.add_batch(sx, locations)
       aggregator_sy.add_batch(sy, locations)
 
-  output_xhat = aggregator_xhat.get_output_tensor()
-  output_yhat = aggregator_yhat.get_output_tensor()
   output_rx = aggregator_rx.get_output_tensor()
   output_ry = aggregator_ry.get_output_tensor()
+  output_cx = aggregator_cx.get_output_tensor()
+  output_cy = aggregator_cy.get_output_tensor()
   output_fx = aggregator_fx.get_output_tensor()
   output_fy = aggregator_fy.get_output_tensor()
   output_sx = aggregator_sx.get_output_tensor()
@@ -230,14 +235,14 @@ if __name__ == '__main__':
 
   print('Saving images...')
 
-  o_xhat = tio.ScalarImage(tensor=output_xhat, affine=subject['t1'].affine)
-  o_xhat.save(output_path+'gromov_xhat.nii.gz')
-  o_yhat = tio.ScalarImage(tensor=output_yhat, affine=subject['t1'].affine)
-  o_yhat.save(output_path+'gromov_yhat.nii.gz')
   o_rx = tio.ScalarImage(tensor=output_rx, affine=subject['t1'].affine)
   o_rx.save(output_path+'gromov_rx.nii.gz')
   o_ry = tio.ScalarImage(tensor=output_ry, affine=subject['t1'].affine)
   o_ry.save(output_path+'gromov_ry.nii.gz')
+  o_cx = tio.ScalarImage(tensor=output_cx, affine=subject['t1'].affine)
+  o_cx.save(output_path+'gromov_cx.nii.gz')
+  o_cy = tio.ScalarImage(tensor=output_cy, affine=subject['t1'].affine)
+  o_cy.save(output_path+'gromov_cy.nii.gz')
   o_fx = tio.ScalarImage(tensor=output_fx, affine=subject['t1'].affine)
   o_fx.save(output_path+'gromov_fx.nii.gz')
   o_fy = tio.ScalarImage(tensor=output_fy, affine=subject['t1'].affine)
