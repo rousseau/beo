@@ -206,15 +206,17 @@ class DecompNet(pl.LightningModule):
 
     self.lw = {}
     self.lw['rx'] = 1 #reconstruction-based loss
-    self.lw['sx'] = 1 #segmentation loss    
+    self.lw['sx'] = 0 #segmentation loss    
     self.lw['cx'] = 0 #cross-reconstruction loss
     self.lw['ry'] = 0 #reconstruction-based loss
     self.lw['sy'] = 0 #segmentation loss   
     self.lw['cy'] = 0 #cross-reconstruction loss
     self.lw['tvx'] = 0 #total variation loss
     self.lw['tvy'] = 0 #total variation loss
-    self.lw['fxfy'] = 0 #shared feature-based loss
+    self.lw['fxfy'] = 1 #shared feature-based loss
 
+    for k in self.lw.keys():
+      print(k+' : '+str(self.lw[k]))
 
   def forward(self,x,y):     
     fx = self.feature(x)
@@ -293,7 +295,7 @@ class DecompNet(pl.LightningModule):
     s = patches_batch['label'][tio.DATA] 
     
     bce = nn.BCEWithLogitsLoss()
-    x_hat, y_hat, rx, ry, fx, fy, sx, sy = self(x,y)
+    rx, ry, cx, cy, fx, fy, sx, sy = self(x,y)
     loss = 0
     for k in self.lw.keys():
       if k == 'rx' and self.lw[k] > 0:
