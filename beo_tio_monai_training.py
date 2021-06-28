@@ -87,7 +87,7 @@ if __name__ == '__main__':
   if data=='equinus':
     data_path = home+'/Sync/Data/Equinus_Learning/'
     out_channels = 4
-    subject_names = ['E01','E02','E03','E05','E06','E09','E08','E10','T01','T02','T03','T04','T05','T06','T07','T08','T10','T11']
+    subject_names = ['E01','E02','E03','E05','E06','E09','E08','E10','T01','T02','T03','T04','T05','T06','T07','T08','T09','T10','T11']
     subjects = []
 
     for s in subject_names:
