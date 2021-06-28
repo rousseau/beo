@@ -68,30 +68,30 @@ class Unet(pl.LightningModule):
         x5 = self.dc5(x5)
         return self.out(x5)
 
-    def training_step(self, batch, batch_idx):
-        patches_batch = batch
-        x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['label'][tio.DATA]
-        y_hat = self(x)
+    # def training_step(self, batch, batch_idx):
+    #     patches_batch = batch
+    #     x = patches_batch['t2'][tio.DATA]
+    #     y = patches_batch['label'][tio.DATA]
+    #     y_hat = self(x)
 
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(y_hat,y)
-        self.log('train_loss', loss)
-        return loss        
+    #     criterion = nn.BCEWithLogitsLoss()
+    #     loss = criterion(y_hat,y)
+    #     self.log('train_loss', loss)
+    #     return loss        
 
-    def validation_step(self, batch, batch_idx):
-        patches_batch = batch
-        x = patches_batch['t2'][tio.DATA]
-        y = patches_batch['label'][tio.DATA]
-        y_hat = self(x)
+    # def validation_step(self, batch, batch_idx):
+    #     patches_batch = batch
+    #     x = patches_batch['t2'][tio.DATA]
+    #     y = patches_batch['label'][tio.DATA]
+    #     y_hat = self(x)
 
-        criterion = nn.BCEWithLogitsLoss()
-        loss = criterion(y_hat,y)
-        self.log('val_loss', loss)
-        return loss        
+    #     criterion = nn.BCEWithLogitsLoss()
+    #     loss = criterion(y_hat,y)
+    #     self.log('val_loss', loss)
+    #     return loss        
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+    # def configure_optimizers(self):
+    #     return torch.optim.Adam(self.parameters(), lr=1e-3)
 
 
 class Encoder(torch.nn.Module):
@@ -125,15 +125,26 @@ class Feature(torch.nn.Module):
   def __init__(self, n_channels = 1, n_features = 10, n_filters = 32):
     super(Feature, self).__init__()
 
-    #self.unet = Unet(n_channels = n_channels, n_classes = n_features, n_features = n_filters)
-    self.unet = monai.networks.nets.UNet(
-                dimensions=3,
-                in_channels=n_channels,
-                out_channels=n_features,
-                channels=(n_filters, n_filters*2, n_filters*4),
-                strides=(2, 2, 2),
-                num_res_units=2,
-                )   
+    self.unet = Unet(n_channels = n_channels, n_classes = n_features, n_features = n_filters)
+    # self.unet = monai.networks.nets.UNet(
+    #             dimensions=3,
+    #             in_channels=n_channels,
+    #             out_channels=n_features,
+    #             channels=(n_filters, n_filters*2, n_filters*4),
+    #             strides=(2, 2, 2),
+    #             num_res_units=2,
+    #             )   
+                
+    # self.unet = monai.networks.nets.RegUNet(
+    #             spatial_dims=3,
+    #             in_channels=n_channels,
+    #             out_channels=n_features,
+    #             num_channel_initial = n_filters, 
+    #             depth = 2,
+    #             pooling = True,
+    #             concat_skip = True,
+    #             )   
+
 
   def forward(self,x):
     xout = self.unet(x)
@@ -144,21 +155,21 @@ class Reconstruction(torch.nn.Module):
   def __init__(self, in_channels, n_filters = 16):
     super(Reconstruction, self).__init__()
     
-    # self.recon = nn.Sequential(
-    #   nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-    #   nn.ReLU(),
-    #   nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
-    #   nn.ReLU(),
-    #   nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 3,stride = 1, padding=1)
-    #   )    
-    self.recon = monai.networks.nets.UNet(
-                dimensions=3,
-                in_channels=in_channels,
-                out_channels=1,
-                channels=(n_filters, n_filters*2, n_filters*4),
-                strides=(2, 2, 2),
-                num_res_units=2,
-                )
+    self.recon = nn.Sequential(
+       nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 3,stride = 1, padding=1)
+       )    
+    # self.recon = monai.networks.nets.UNet(
+    #             dimensions=3,
+    #             in_channels=in_channels,
+    #             out_channels=1,
+    #             channels=(n_filters, n_filters*2, n_filters*4),
+    #             strides=(2, 2, 2),
+    #             num_res_units=2,
+    #             )
 
   def forward(self,x):
     return self.recon(x)    
@@ -167,31 +178,37 @@ class Feature2Segmentation(torch.nn.Module):
   def __init__(self, in_channels, out_channels, n_filters = 16):
     super(Feature2Segmentation, self).__init__()
     
-    # self.seg = nn.Sequential(
-    #   nn.Conv3d(in_channels = in_channels, out_channels = out_channels, kernel_size = 1,stride = 1, padding=0),
-    #   #nn.Sigmoid()
-    #   )  
     self.n_filters = n_filters
 
-    self.seg = monai.networks.nets.UNet(
-                dimensions=3,
-                in_channels=in_channels,
-                out_channels=out_channels,
-                channels=(self.n_filters, self.n_filters*2, self.n_filters*4),
-                strides=(2, 2, 2),
-                num_res_units=2,
-                )
+    self.seg = nn.Sequential(
+      nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = out_channels, kernel_size = 3,stride = 1, padding=1)
+      #nn.Sigmoid()
+      )  
+
+
+    # self.seg = monai.networks.nets.UNet(
+    #             dimensions=3,
+    #             in_channels=in_channels,
+    #             out_channels=out_channels,
+    #             channels=(self.n_filters, self.n_filters*2, self.n_filters*4),
+    #             strides=(2, 2, 2),
+    #             num_res_units=2,
+    #             )
 
   def forward(self,x):
     return self.seg(x)        
 
 class DecompNet(pl.LightningModule):
 
-  def __init__(self, latent_dim = 32, n_filters = 16, n_features = 16, patch_size = 64):
+  def __init__(self, latent_dim = 32, n_filters = 16, n_features = 16, patch_size = 64, learning_rate = 1e-4):
     super().__init__()
     self.patch_size = patch_size
     self.latent_dim = int(latent_dim) 
     self.n_classes = 10
+
+    self.learning_rate = learning_rate
 
     self.n_filters_encoder = int(n_filters/2)
     self.n_filters_feature = n_filters
@@ -200,26 +217,27 @@ class DecompNet(pl.LightningModule):
     self.n_filters_seg = n_filters
 
     self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
-    self.feature = Feature(1, self.n_features, self.n_filters_feature)
+    self.feature_x = Feature(1, self.n_features, self.n_filters_feature)
+    self.feature_y = Feature(1, self.n_features, self.n_filters_feature)    
     self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
     self.segmenter = Feature2Segmentation(self.n_features, self.n_classes, self.n_filters_seg)
 
     self.lw = {}
     self.lw['rx'] = 1 #reconstruction-based loss
-    self.lw['sx'] = 0 #segmentation loss    
-    self.lw['cx'] = 0 #cross-reconstruction loss
-    self.lw['ry'] = 0 #reconstruction-based loss
-    self.lw['sy'] = 0 #segmentation loss   
-    self.lw['cy'] = 0 #cross-reconstruction loss
+    self.lw['sx'] = 1 #segmentation loss    
+    self.lw['cx'] = 1 #cross-reconstruction loss
+    self.lw['ry'] = 1 #reconstruction-based loss
+    self.lw['sy'] = 1 #segmentation loss   
+    self.lw['cy'] = 1 #cross-reconstruction loss
     self.lw['tvx'] = 0 #total variation loss
     self.lw['tvy'] = 0 #total variation loss
-    self.lw['fxfy'] = 1 #shared feature-based loss
+    self.lw['fxfy'] = 0 #shared feature-based loss
 
     for k in self.lw.keys():
       print(k+' : '+str(self.lw[k]))
 
   def forward(self,x,y):     
-    fx = self.feature(x)
+    fx = self.feature_x(x)
 
     xfx = torch.cat([x,fx], dim=1)
     zx = self.encoder(xfx)
@@ -229,7 +247,7 @@ class DecompNet(pl.LightningModule):
     fxzfx = torch.cat([fx,zfx], dim=1)
     rx = self.reconstruction(fxzfx)
 
-    fy = self.feature(y)
+    fy = self.feature_y(y)
 
     yfy = torch.cat([y,fy], dim=1)
     zy = self.encoder(yfy)
@@ -321,5 +339,5 @@ class DecompNet(pl.LightningModule):
     return loss
 
   def configure_optimizers(self):
-    optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
     return optimizer
