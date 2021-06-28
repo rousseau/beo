@@ -36,6 +36,7 @@ if __name__ == '__main__':
   parser.add_argument('-s', '--samples', help='Samples per volume', type=int, required=False, default = 8)
   parser.add_argument('-q', '--queue', help='Max queue length', type=int, required=False, default = 32)
   parser.add_argument('--max_subjects', help='Max number of subjects', type=int, required=False, default = 100)
+  parser.add_argument('--learning_rate', help='Learning Rate (for optimization)', type=float, required=False, default = 1e-4)
 
   args = parser.parse_args()
 
@@ -57,6 +58,8 @@ if __name__ == '__main__':
   latent_dim = args.latent_dim 
   n_filters = args.n_filters
   n_features = args.n_features
+
+  learning_rate = args.learning_rate
 
   prefix = 'gromov'
   prefix += '_epochs_'+str(num_epochs)
@@ -168,9 +171,9 @@ if __name__ == '__main__':
 
   #%%
   if args.model is not None:
-    net = DecompNet().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size)
+    net = DecompNet().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
   else:
-    net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size)
+    net = DecompNet(latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
@@ -245,12 +248,12 @@ if __name__ == '__main__':
   o_cy.save(output_path+'gromov_cy.nii.gz')
   o_fx = tio.ScalarImage(tensor=output_fx, affine=subject['t1'].affine)
   o_fx.save(output_path+'gromov_fx.nii.gz')
-  o_fy = tio.ScalarImage(tensor=output_fy, affine=subject['t1'].affine)
-  o_fy.save(output_path+'gromov_fy.nii.gz')
-  o_sx = tio.ScalarImage(tensor=output_sx, affine=subject['t1'].affine)
-  o_sx.save(output_path+'gromov_sx.nii.gz')
-  o_sy = tio.ScalarImage(tensor=output_sy, affine=subject['t1'].affine)
-  o_sy.save(output_path+'gromov_sy.nii.gz')
+  #o_fy = tio.ScalarImage(tensor=output_fy, affine=subject['t1'].affine)
+  #o_fy.save(output_path+'gromov_fy.nii.gz')
+  #o_sx = tio.ScalarImage(tensor=output_sx, affine=subject['t1'].affine)
+  #o_sx.save(output_path+'gromov_sx.nii.gz')
+  #o_sy = tio.ScalarImage(tensor=output_sy, affine=subject['t1'].affine)
+  #o_sy.save(output_path+'gromov_sy.nii.gz')
 
 
   o_sx_bin = torch.unsqueeze(torch.argmax(output_sx,dim=0),0).int()
