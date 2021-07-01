@@ -26,6 +26,7 @@ if __name__ == '__main__':
   parser.add_argument('-d', '--data', help='Input dataset', type=str, required=False, default = 'dhcp')
   parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 50)
   parser.add_argument('-c', '--channels', help='Number of channels in Unet', type=int, required=False, default=32)
+  parser.add_argument('-l', '--levels', help='Number of levels in Unet (up to 5)', type=int, required=False, default=3)
   parser.add_argument('-m', '--model', help='Pytorch initialization model', type=str, required=False)
 
   parser.add_argument('-w', '--workers', help='Number of workers (multiprocessing)', type=int, required=False, default = 0)
@@ -49,6 +50,7 @@ if __name__ == '__main__':
   max_queue_length = args.queue
   
   n_channels = args.channels
+  n_levels = args.levels
   data = args.data
 
   prefix = 'unet3d_monai_'
@@ -57,6 +59,7 @@ if __name__ == '__main__':
   prefix += '_patches_'+str(patch_size)
   prefix += '_sampling_'+str(samples_per_volume)
   prefix += '_nchannels_'+str(n_channels)
+  prefix += '_nlevels_'+str(n_levels)
 
   if args.model is not None:
     prefix += '_using_init'
@@ -187,11 +190,23 @@ if __name__ == '__main__':
     patches_validation_set, batch_size=validation_batch_size)
 
 #%%
+  
+  channels_list = [n_channels]
+  if n_levels > 1:
+    channels_list.append(n_channels*2)
+  if n_levels > 2:
+    channels_list.append(n_channels*4)
+  if n_levels > 3:
+    channels_list.append(n_channels*8)
+  if n_levels > 4:
+    channels_list.append(n_channels*16)
+
+  channels_tuple = tuple(channels_list)
   unet = monai.networks.nets.UNet(
     dimensions=3,
     in_channels=1,
     out_channels=out_channels,
-    channels=(n_channels, n_channels*2, n_channels*4),
+    channels=channels_tuple,
     strides=(2, 2, 2),
     num_res_units=2,
   )    
