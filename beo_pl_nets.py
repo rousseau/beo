@@ -232,6 +232,7 @@ class DecompNet(pl.LightningModule):
     self.lw['tvx'] = 0 #total variation loss
     self.lw['tvy'] = 0 #total variation loss
     self.lw['fxfy'] = 0 #shared feature-based loss
+    self.lw['varxy'] = 1 #variance of the latent vector
 
     for k in self.lw.keys():
       print(k+' : '+str(self.lw[k]))
@@ -271,7 +272,7 @@ class DecompNet(pl.LightningModule):
     sx = self.segmenter(fx)
     sy = self.segmenter(fy)
     
-    return rx, ry, cx, cy, fx, fy, sx, sy
+    return rx, ry, cx, cy, fx, fy, sx, sy, zx, zy
 
   def training_step(self, batch, batch_idx):
     patches_batch = batch
@@ -279,7 +280,7 @@ class DecompNet(pl.LightningModule):
     y = patches_batch['t2'][tio.DATA]
     s = patches_batch['label'][tio.DATA]
     
-    rx, ry, cx, cy, fx, fy, sx, sy = self(x,y)
+    rx, ry, cx, cy, fx, fy, sx, sy, zx, zy = self(x,y)
 
     bce = nn.BCEWithLogitsLoss()
     loss = 0
@@ -302,6 +303,8 @@ class DecompNet(pl.LightningModule):
         loss += self.lw[k] * total_variation(fy)
       if k == 'fxfy' and self.lw[k] > 0:
         loss += self.lw[k] * F.mse_loss(fx, fy) 
+      if k == 'varxy' and self.lw[k] > 0:
+        loss += self.lw[k] * (torch.mean(torch.var(zx,dim=1)) + torch.mean(torch.var(zy,dim=1))) 
 
     self.log('train_loss', loss)
     return loss
@@ -313,7 +316,7 @@ class DecompNet(pl.LightningModule):
     s = patches_batch['label'][tio.DATA] 
     
     bce = nn.BCEWithLogitsLoss()
-    rx, ry, cx, cy, fx, fy, sx, sy = self(x,y)
+    rx, ry, cx, cy, fx, fy, sx, sy, zx, zy = self(x,y)
     loss = 0
     for k in self.lw.keys():
       if k == 'rx' and self.lw[k] > 0:
@@ -334,7 +337,9 @@ class DecompNet(pl.LightningModule):
         loss += self.lw[k] * total_variation(fy)
       if k == 'fxfy' and self.lw[k] > 0:
         loss += self.lw[k] * F.mse_loss(fx, fy) 
-
+      if k == 'varxy' and self.lw[k] > 0:
+        loss += self.lw[k] * (torch.mean(torch.var(zx,dim=1)) + torch.mean(torch.var(zy,dim=1))) 
+        
     self.log('val_loss', loss)
     return loss
 
