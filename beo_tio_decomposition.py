@@ -70,8 +70,8 @@ if __name__ == '__main__':
   prefix += '_nfilters_'+str(n_filters)
   prefix += '_nfeatures_'+str(n_features)
 
-  data_path = home+'/Sync/Data/DHCP/'
-  output_path = home+'/Sync/Experiments/'
+  data_path = home+'/Sync-Exp/Data/DHCP/'
+  output_path = home+'/Sync-Exp/Experiments/'
 
   all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
   all_t2s = glob.glob(data_path+'**/*desc-restore_T2w.nii.gz', recursive=True)
