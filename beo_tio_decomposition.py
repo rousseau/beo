@@ -217,7 +217,7 @@ if __name__ == '__main__':
       x_tensor = patches_batch['t1'][tio.DATA]
       y_tensor = patches_batch['t2'][tio.DATA]
       locations = patches_batch[tio.LOCATION]
-      rx, ry, cx, cy, fx, fy, sx, sy = net(x_tensor, y_tensor)
+      rx, ry, cx, cy, fx, fy, sx, sy, zx, zy = net(x_tensor, y_tensor)
       aggregator_rx.add_batch(rx, locations)
       aggregator_ry.add_batch(ry, locations)
       aggregator_cx.add_batch(cx, locations)
