@@ -401,7 +401,7 @@ class DecompNet(pl.LightningModule):
 
 class DecompNet_IXI(pl.LightningModule):
 
-  def __init__(self, latent_dim = 32, n_filters = 16, n_features = 16, patch_size = 64, learning_rate = 1e-4):
+  def __init__(self, latent_dim = 32, n_filters_encoder = 16, n_filters_feature = 16, n_filters_recon = 16, n_features = 16, patch_size = 64, learning_rate = 1e-4):
     super().__init__()
     self.patch_size = patch_size
     self.latent_dim = int(latent_dim) 
@@ -409,10 +409,10 @@ class DecompNet_IXI(pl.LightningModule):
 
     self.learning_rate = learning_rate
 
-    self.n_filters_encoder = int(n_filters/2)
-    self.n_filters_feature = n_filters
+    self.n_filters_encoder = n_filters_encoder
+    self.n_filters_feature = n_filters_feature
     self.n_features = n_features
-    self.n_filters_recon = n_filters
+    self.n_filters_recon = n_filters_recon
 
     self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
     self.feature_x = Feature(1, self.n_features, self.n_filters_feature)
