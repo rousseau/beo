@@ -225,7 +225,7 @@ if __name__ == '__main__':
       z = patches_batch['pd'][tio.DATA]
       locations = patches_batch[tio.LOCATION]
 
-      rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y = net(x,y,z)
+      rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y, my2z, mz2y, mz2x, mx2z = net(x,y,z)
       aggregator_rx.add_batch(rx, locations)
       aggregator_ry.add_batch(ry, locations)
       aggregator_rz.add_batch(rz, locations)
