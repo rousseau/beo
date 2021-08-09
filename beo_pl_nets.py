@@ -44,8 +44,8 @@ class Unet(pl.LightningModule):
         self.dc3 = double_conv(self.n_features*2, self.n_features*4)
         self.dc4 = double_conv(self.n_features*6, self.n_features*2)
         self.dc5 = double_conv(self.n_features*3, self.n_features)
-
         self.mp = nn.MaxPool3d(2)
+
         self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
 
         self.out = nn.Conv3d(self.n_features, self.n_classes, kernel_size=1)
@@ -157,6 +157,12 @@ class Reconstruction(torch.nn.Module):
     
     self.recon = nn.Sequential(
        nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
        nn.ReLU(),
        nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
        nn.ReLU(),
@@ -407,8 +413,6 @@ class DecompNet_IXI(pl.LightningModule):
     self.n_filters_feature = n_filters
     self.n_features = n_features
     self.n_filters_recon = n_filters
-
-
 
     self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
     self.feature_x = Feature(1, self.n_features, self.n_filters_feature)
