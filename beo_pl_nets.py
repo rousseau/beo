@@ -156,11 +156,13 @@ class Reconstruction(torch.nn.Module):
     super(Reconstruction, self).__init__()
     
     self.recon = nn.Sequential(
-       nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+       nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 3,stride = 1, padding=1),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 3,stride = 1, padding=1)
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.ReLU(),
+       nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 1,stride = 1, padding=0)
        )    
     # self.recon = monai.networks.nets.UNet(
     #             dimensions=3,
@@ -434,7 +436,7 @@ class DecompNet_IXI(pl.LightningModule):
     self.lw['cy'] = 1 #cross-reconstruction loss
     self.lw['rz'] = 1 #reconstruction-based loss
     self.lw['cz'] = 1 #cross-reconstruction loss
-    self.lw['m'] = 1  #mapping based cross-reconstruction loss
+    self.lw['m'] = 0  #mapping based cross-reconstruction loss
 
   def forward(self,x,y,z):
     #First modality---------------     
