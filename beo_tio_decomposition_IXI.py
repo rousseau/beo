@@ -25,9 +25,12 @@ if __name__ == '__main__':
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) initialization model', type=str, required=False)
   parser.add_argument('-l', '--latent_dim', help='Dimension of the latent space', type=int, required=False, default = 10)
   parser.add_argument('-f', '--n_filters', help='Number of filters', type=int, required=False, default = 16)
+  parser.add_argument('--n_filters_encoder', help='Number of filters for latent space encoding', type=int, required=False, default = 8)
+  parser.add_argument('--n_filters_feature', help='Number of filters for unet-based feature estimation', type=int, required=False, default = 16)
+  parser.add_argument('--n_filters_recon', help='Number of filters for reconstruction', type=int, required=False, default = 16)
   parser.add_argument('--n_features', help='Number of features', type=int, required=False, default = 16)
   parser.add_argument('-w', '--workers', help='Number of workers (multiprocessing)', type=int, required=False, default = 32)
-  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 4)
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1)
   parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 64)
   parser.add_argument('-s', '--samples', help='Samples per volume', type=int, required=False, default = 8)
   parser.add_argument('-q', '--queue', help='Max queue length', type=int, required=False, default = 1024)
@@ -48,6 +51,9 @@ if __name__ == '__main__':
 
   latent_dim = args.latent_dim 
   n_filters = args.n_filters
+  n_filters_encoder = args.n_filters_encoder
+  n_filters_feature = args.n_filters_feature
+  n_filters_recon = args.n_filters_recon
   n_features = args.n_features
   num_epochs = args.epochs
 
@@ -62,7 +68,9 @@ if __name__ == '__main__':
   prefix += '_patches_'+str(patch_size)
   prefix += '_sampling_'+str(samples_per_volume)
   prefix += '_latentdim_'+str(latent_dim)
-  prefix += '_nfilters_'+str(n_filters)
+  prefix += '_nfe_'+str(n_filters_encoder)
+  prefix += '_nff_'+str(n_filters_feature)
+  prefix += '_nfr_'+str(n_filters_recon)
   prefix += '_nfeatures_'+str(n_features)
 
   all_pds = glob.glob(data_path+'*PD.nii.gz', recursive=True)
@@ -174,9 +182,9 @@ if __name__ == '__main__':
       patches_validation_set, batch_size=validation_batch_size)
 
   if args.model is not None:
-    net = DecompNet_IXI().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_IXI().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
   else:
-    net = DecompNet_IXI(latent_dim = latent_dim, n_filters = n_filters, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_IXI(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
