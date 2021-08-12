@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 import glob
 import multiprocessing
 
-from beo_pl_nets import DecompNet_IXI
+from beo_pl_nets import DecompNet_IXI, DecompNet_3
 
 import argparse
 
@@ -182,18 +182,18 @@ if __name__ == '__main__':
       patches_validation_set, batch_size=validation_batch_size)
 
   if args.model is not None:
-    net = DecompNet_IXI().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_3().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
   else:
-    net = DecompNet_IXI(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_3(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
-    filename=prefix+'_{epoch:02d}',
+    filename=prefix+'_{epoch:02d}', 
     verbose=True
     )
 
-  trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback])
-
+  trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback], auto_lr_find=True)
+  #trainer.tune(net, training_loader_patches, validation_loader_patches)
   #%%
 
   trainer.fit(net, training_loader_patches, validation_loader_patches)
@@ -278,8 +278,8 @@ if __name__ == '__main__':
   o_f = tio.ScalarImage(tensor=output_f, affine=subject['t1'].affine)
   o_f.save(output_path+'gromov_f.nii.gz')
 
-  o_my2x = tio.ScalarImage(tensor=output_my2x, affine=subject['t1'].affine)
-  o_my2x.save(output_path+'gromov_my2x.nii.gz')
+  #o_my2x = tio.ScalarImage(tensor=output_my2x, affine=subject['t1'].affine)
+  #o_my2x.save(output_path+'gromov_my2x.nii.gz')
 
 
   subject['t2'].save(output_path+'gromov_t2.nii.gz')
