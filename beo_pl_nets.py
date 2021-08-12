@@ -115,7 +115,8 @@ class Encoder(torch.nn.Module):
       nn.Conv3d(in_channels = n_filters*4, out_channels = n_filters*8, kernel_size = 3,stride = 2, padding=1),
       nn.Tanh(),
       nn.Flatten(),
-      nn.Linear(self.hidden_dim,self.latent_dim)
+      nn.Linear(self.hidden_dim,self.latent_dim),
+      nn.Tanh() 
       )
 
   def forward(self,x):
@@ -147,28 +148,32 @@ class Feature(torch.nn.Module):
 
 
   def forward(self,x):
-    xout = self.unet(x)
+    xout = self.unet(x) 
     #return nn.ReLU()(xout)
-    return nn.Tanh()(xout)    
+    #return nn.Tanh()(xout)
+    return nn.Softmax(dim=1)(xout)
+    #return nn.functional.gumbel_softmax(xout, hard=True)    
 
 class Reconstruction(torch.nn.Module):
   def __init__(self, in_channels, n_filters = 16):
     super(Reconstruction, self).__init__()
     
+    ks = 3
+    pad = 1
     self.recon = nn.Sequential(
-       nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = in_channels, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = 1,stride = 1, padding=0),
+       nn.Conv3d(in_channels = n_filters, out_channels = n_filters, kernel_size = ks,stride = 1, padding=pad),
        nn.ReLU(),
-       nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = 1,stride = 1, padding=0)
+       nn.Conv3d(in_channels = n_filters, out_channels = 1, kernel_size = ks,stride = 1, padding=pad)
        )    
     # self.recon = monai.networks.nets.UNet(
     #             dimensions=3,
@@ -563,6 +568,211 @@ class DecompNet_IXI(pl.LightningModule):
         loss += self.lw[k] * (F.mse_loss(my2x, x) + F.mse_loss(mx2y, y))
         loss += self.lw[k] * (F.mse_loss(my2z, z) + F.mse_loss(mz2y, y))
         loss += self.lw[k] * (F.mse_loss(mz2x, x) + F.mse_loss(mx2z, z))
+
+    self.log('train_loss', loss)
+    return loss
+
+  def validation_step(self, batch, batch_idx):
+    patches_batch = batch
+    x = patches_batch['t1'][tio.DATA]
+    y = patches_batch['t2'][tio.DATA]
+    z = patches_batch['pd'][tio.DATA]
+    
+    rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y, my2z, mz2y, mz2x, mx2z = self(x,y,z)
+
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(rx, x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(ry, y)
+      if k == 'rz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(rz, z)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cx, x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cy, y)
+      if k == 'cz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cz, z)
+      if k == 'm' and self.lw[k] > 0:
+        loss += self.lw[k] * (F.mse_loss(my2x, x) + F.mse_loss(mx2y, y))
+        loss += self.lw[k] * (F.mse_loss(my2z, z) + F.mse_loss(mz2y, y))
+        loss += self.lw[k] * (F.mse_loss(mz2x, x) + F.mse_loss(mx2z, z))
+
+    self.log('val_loss', loss)
+    return loss
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    return optimizer
+
+class DecompNet_3(pl.LightningModule):
+
+  def __init__(self, latent_dim = 32, n_filters_encoder = 16, n_filters_feature = 16, n_filters_recon = 16, n_features = 16, patch_size = 64, learning_rate = 1e-4):
+    super().__init__()
+    self.patch_size = patch_size
+    self.latent_dim = int(latent_dim) 
+    self.n_classes = 10
+
+    self.learning_rate = learning_rate
+
+    self.n_filters_encoder = n_filters_encoder
+    self.n_filters_feature = n_filters_feature
+    self.n_features = n_features 
+    self.n_filters_recon = n_filters_recon
+
+    self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
+    self.feature = Feature(1, self.n_features, self.n_filters_feature)
+    self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
+
+    self.n_layers = 10
+    self.block_x_to_y = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_x_to_y = ResNet1D_forward(block = self.block_x_to_y, n_layers = self.n_layers)
+    self.mapping_y_to_x = ResNet1D_backward(block = self.block_x_to_y, n_layers = self.n_layers)    
+
+    self.block_y_to_z = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_y_to_z = ResNet1D_forward(block = self.block_y_to_z, n_layers = self.n_layers)
+    self.mapping_z_to_y = ResNet1D_backward(block = self.block_y_to_z, n_layers = self.n_layers)    
+
+    self.block_z_to_x = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_z_to_x = ResNet1D_forward(block = self.block_z_to_x, n_layers = self.n_layers)
+    self.mapping_x_to_z = ResNet1D_backward(block = self.block_z_to_x, n_layers = self.n_layers)    
+
+    self.lw = {}
+    self.lw['rx'] = 1 #reconstruction-based loss
+    self.lw['cx'] = 1 #cross-reconstruction loss
+    self.lw['ry'] = 1 #reconstruction-based loss
+    self.lw['cy'] = 1 #cross-reconstruction loss
+    self.lw['rz'] = 1 #reconstruction-based loss
+    self.lw['cz'] = 1 #cross-reconstruction loss
+    self.lw['m'] = 0  #mapping based cross-reconstruction loss
+    self.lw['f'] = 1  #feature similarity loss
+
+  def forward(self,x,y,z):
+    #First modality---------------     
+    fx = self.feature(x)
+
+    xfx = torch.cat([x,fx], dim=1)
+    zx = self.encoder(xfx)
+
+    zx5d = zx.view(-1,self.latent_dim,1,1,1)
+    zxf = zx5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fxzxf = torch.cat([fx,zxf], dim=1)
+    rx = self.reconstruction(fxzxf)
+
+    #Second modality---------------     
+    fy = self.feature(y)
+
+    yfy = torch.cat([y,fy], dim=1)
+    zy = self.encoder(yfy)
+
+    zy5d = zy.view(-1,self.latent_dim,1,1,1)    
+    zyf = zy5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fyzyf = torch.cat([fy,zyf], dim=1)
+    ry = self.reconstruction(fyzyf)
+
+    #Third modality---------------     
+    fz = self.feature(z)
+
+    zfz = torch.cat([z,fz], dim=1)
+    zz = self.encoder(zfz)
+
+    zz5d = zz.view(-1,self.latent_dim,1,1,1)
+    zzf = zz5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fzzzf = torch.cat([fz,zzf], dim=1)
+    rz = self.reconstruction(fzzzf)
+
+    #One way to do this only one time : mean of feature maps
+    f = torch.mean(torch.stack([fx,fy,fz]),dim=0)
+
+    # Reconstruction of x using f and zfx
+    fzxf = torch.cat([fy,zxf], dim=1)
+    cx = self.reconstruction(fzxf)
+
+    # Reconstruction of y using f and zfy
+    fzyf = torch.cat([fz,zyf], dim=1)
+    cy = self.reconstruction(fzyf)
+ 
+    # Reconstruction of z using f and zzf
+    fzzf = torch.cat([fx,zzf], dim=1)
+    cz = self.reconstruction(fzzf)
+
+    # #Add cycle consistency ?
+
+    # Reconstruction using latent transfert
+    # X -> Y
+    zx2y = self.mapping_x_to_y(zx)
+    zx2y5d = zx2y.view(-1,self.latent_dim,1,1,1)
+    zx2yf = zx2y5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fx2y = torch.cat([f,zx2yf], dim=1)    
+    mx2y = self.reconstruction(fx2y)
+
+    zy2x = self.mapping_y_to_x(zy)
+    zy2x5d = zy2x.view(-1,self.latent_dim,1,1,1)
+    zy2xf = zy2x5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fy2x = torch.cat([f,zy2xf], dim=1)    
+    my2x = self.reconstruction(fy2x)
+
+    # Y -> Z
+    zy2z = self.mapping_y_to_z(zy)
+    zy2z5d = zy2z.view(-1,self.latent_dim,1,1,1)
+    zy2zf = zy2z5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fy2z = torch.cat([f,zy2zf], dim=1)    
+    my2z = self.reconstruction(fy2z)
+
+    zz2y = self.mapping_z_to_y(zz)
+    zz2y5d = zz2y.view(-1,self.latent_dim,1,1,1)
+    zz2yf = zz2y5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fz2y = torch.cat([f,zz2yf], dim=1)    
+    mz2y = self.reconstruction(fz2y)
+
+    # Z -> X
+    zz2x = self.mapping_z_to_x(zz)
+    zz2x5d = zz2x.view(-1,self.latent_dim,1,1,1)
+    zz2xf = zz2x5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fz2x = torch.cat([f,zz2xf], dim=1)    
+    mz2x = self.reconstruction(fz2x)
+
+    zx2z = self.mapping_x_to_z(zx)
+    zx2z5d = zx2z.view(-1,self.latent_dim,1,1,1)
+    zx2zf = zx2z5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fx2z = torch.cat([f,zx2zf], dim=1)    
+    mx2z = self.reconstruction(fx2z)
+
+
+  
+    return rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y, my2z, mz2y, mz2x, mx2z
+
+  def training_step(self, batch, batch_idx):
+    patches_batch = batch
+    x = patches_batch['t1'][tio.DATA]
+    y = patches_batch['t2'][tio.DATA]
+    z = patches_batch['pd'][tio.DATA]
+    
+    rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y, my2z, mz2y, mz2x, mx2z = self(x,y,z)
+
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(rx, x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(ry, y)
+      if k == 'rz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(rz, z)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cx, x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cy, y)
+      if k == 'cz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(cz, z)
+      if k == 'm' and self.lw[k] > 0:
+        loss += self.lw[k] * (F.mse_loss(my2x, x) + F.mse_loss(mx2y, y))
+        loss += self.lw[k] * (F.mse_loss(my2z, z) + F.mse_loss(mz2y, y))
+        loss += self.lw[k] * (F.mse_loss(mz2x, x) + F.mse_loss(mx2z, z))
+      if k == 'f' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(fx, fy)  
+        loss += self.lw[k] * F.mse_loss(fz, fy)  
+        loss += self.lw[k] * F.mse_loss(fx, fz)  
 
     self.log('train_loss', loss)
     return loss
