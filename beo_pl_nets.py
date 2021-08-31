@@ -810,3 +810,253 @@ class DecompNet_3(pl.LightningModule):
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
     return optimizer
+
+class DecompNet_VAE(pl.LightningModule):
+
+  def __init__(self, latent_dim = 32, n_filters_encoder = 16, n_filters_feature = 16, n_filters_recon = 16, n_features = 16, patch_size = 64, learning_rate = 1e-4):
+    super().__init__()
+    self.patch_size = patch_size
+    self.latent_dim = int(latent_dim) 
+    self.n_classes = 10
+
+    self.learning_rate = learning_rate
+
+    self.n_filters_encoder = n_filters_encoder
+    self.n_filters_feature = n_filters_feature
+    self.n_features = n_features 
+    self.n_filters_recon = n_filters_recon
+
+    #self.encoder = Encoder(self.n_features+1, latent_dim, self.n_filters_encoder, patch_size)
+
+    self.encoder = monai.networks.nets.VarAutoEncoder(
+                dimensions=3,
+                in_shape=(self.n_features+1,self.patch_size,self.patch_size,self.patch_size),
+                out_channels=1,
+                latent_size= self.latent_dim,
+                channels=(self.n_filters_encoder,self.n_filters_encoder*2,self.n_filters_encoder*4,self.n_filters_encoder*8),
+                strides=(2, 2, 2, 2),
+                ) 
+
+
+    self.feature_x = Feature(1, self.n_features, self.n_filters_feature)
+    self.feature_y = Feature(1, self.n_features, self.n_filters_feature)
+    self.feature_z = Feature(1, self.n_features, self.n_filters_feature)
+    self.reconstruction = Reconstruction(self.n_features+self.latent_dim, self.n_filters_recon)
+
+    self.n_layers = 10
+    self.block_x_to_y = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_x_to_y = ResNet1D_forward(block = self.block_x_to_y, n_layers = self.n_layers)
+    self.mapping_y_to_x = ResNet1D_backward(block = self.block_x_to_y, n_layers = self.n_layers)    
+
+    self.block_y_to_z = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_y_to_z = ResNet1D_forward(block = self.block_y_to_z, n_layers = self.n_layers)
+    self.mapping_z_to_y = ResNet1D_backward(block = self.block_y_to_z, n_layers = self.n_layers)    
+
+    self.block_z_to_x = Block1D(in_channels = self.latent_dim, n_filters = self.latent_dim * 2)
+    self.mapping_z_to_x = ResNet1D_forward(block = self.block_z_to_x, n_layers = self.n_layers)
+    self.mapping_x_to_z = ResNet1D_backward(block = self.block_z_to_x, n_layers = self.n_layers)    
+
+    self.lw = {}
+    self.lw['rx'] = 1 #reconstruction-based loss
+    self.lw['cx'] = 1 #cross-reconstruction loss
+    self.lw['ry'] = 1 #reconstruction-based loss
+    self.lw['cy'] = 1 #cross-reconstruction loss
+    self.lw['rz'] = 1 #reconstruction-based loss
+    self.lw['cz'] = 1 #cross-reconstruction loss
+    self.lw['m'] = 0  #mapping based cross-reconstruction loss
+    self.lw['f'] = 0  #feature similarity loss
+    self.lw['kld'] = 1 #KL divergence (VAE)
+
+  def forward(self,x,y,z):
+    output_dict = {}
+    #First modality---------------     
+    fx = self.feature_x(x)
+    output_dict['fx'] = fx
+
+    xfx = torch.cat([x,fx], dim=1)
+    _,mux,logvarx,zx = self.encoder(xfx)
+    output_dict['mux'] = mux
+    output_dict['logvarx'] = logvarx
+
+    zx5d = zx.view(-1,self.latent_dim,1,1,1)
+    zxf = zx5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fxzxf = torch.cat([fx,zxf], dim=1)
+    rx = self.reconstruction(fxzxf)
+    output_dict['rx'] = rx
+
+    #Second modality---------------     
+    fy = self.feature_y(y)
+    output_dict['fy'] = fy
+
+    yfy = torch.cat([y,fy], dim=1)
+    _,muy,logvary,zy = self.encoder(yfy)
+    output_dict['muy'] = muy
+    output_dict['logvary'] = logvary
+
+    zy5d = zy.view(-1,self.latent_dim,1,1,1)    
+    zyf = zy5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fyzyf = torch.cat([fy,zyf], dim=1)
+    ry = self.reconstruction(fyzyf)
+    output_dict['ry'] = ry
+
+    #Third modality---------------     
+    fz = self.feature_z(z)
+    output_dict['fz'] = fz
+
+    zfz = torch.cat([z,fz], dim=1)
+    _,muz,logvarz,zz = self.encoder(zfz)
+    output_dict['muz'] = muz
+    output_dict['logvarz'] = logvarz
+
+    zz5d = zz.view(-1,self.latent_dim,1,1,1)
+    zzf = zz5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fzzzf = torch.cat([fz,zzf], dim=1)
+    rz = self.reconstruction(fzzzf)
+    output_dict['rz'] = rz
+
+    #One way to do this only one time : mean of feature maps
+    f = torch.mean(torch.stack([fx,fy,fz]),dim=0)
+
+    # Reconstruction of x using f and zfx
+    fzxf = torch.cat([f,zxf], dim=1)
+    cx = self.reconstruction(fzxf)
+    output_dict['cx'] = cx
+    # Reconstruction of y using f and zfy
+    fzyf = torch.cat([f,zyf], dim=1)
+    cy = self.reconstruction(fzyf)
+    output_dict['cy'] = cy
+    # Reconstruction of z using f and zzf
+    fzzf = torch.cat([f,zzf], dim=1)
+    cz = self.reconstruction(fzzf)
+    output_dict['cz'] = cz
+    # #Add cycle consistency ?
+
+    # Reconstruction using latent transfert
+    # X -> Y
+    zx2y = self.mapping_x_to_y(zx)
+    zx2y5d = zx2y.view(-1,self.latent_dim,1,1,1)
+    zx2yf = zx2y5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fx2y = torch.cat([f,zx2yf], dim=1)    
+    mx2y = self.reconstruction(fx2y)
+    output_dict['mx2y'] = mx2y
+
+    zy2x = self.mapping_y_to_x(zy)
+    zy2x5d = zy2x.view(-1,self.latent_dim,1,1,1)
+    zy2xf = zy2x5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fy2x = torch.cat([f,zy2xf], dim=1)    
+    my2x = self.reconstruction(fy2x)
+    output_dict['my2x'] = my2x
+
+    # Y -> Z
+    zy2z = self.mapping_y_to_z(zy)
+    zy2z5d = zy2z.view(-1,self.latent_dim,1,1,1)
+    zy2zf = zy2z5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fy2z = torch.cat([f,zy2zf], dim=1)    
+    my2z = self.reconstruction(fy2z)
+    output_dict['my2z'] = my2z
+
+    zz2y = self.mapping_z_to_y(zz)
+    zz2y5d = zz2y.view(-1,self.latent_dim,1,1,1)
+    zz2yf = zz2y5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fz2y = torch.cat([f,zz2yf], dim=1)    
+    mz2y = self.reconstruction(fz2y)
+    output_dict['mz2y'] = mz2y
+
+    # Z -> X
+    zz2x = self.mapping_z_to_x(zz)
+    zz2x5d = zz2x.view(-1,self.latent_dim,1,1,1)
+    zz2xf = zz2x5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fz2x = torch.cat([f,zz2xf], dim=1)    
+    mz2x = self.reconstruction(fz2x)
+    output_dict['mz2x'] = mz2x
+
+    zx2z = self.mapping_x_to_z(zx)
+    zx2z5d = zx2z.view(-1,self.latent_dim,1,1,1)
+    zx2zf = zx2z5d.repeat(1,1,self.patch_size,self.patch_size,self.patch_size)
+    fx2z = torch.cat([f,zx2zf], dim=1)    
+    mx2z = self.reconstruction(fx2z)
+    output_dict['mx2z'] = mx2z
+
+  
+    return output_dict
+
+  def training_step(self, batch, batch_idx):
+    patches_batch = batch
+    x = patches_batch['t1'][tio.DATA]
+    y = patches_batch['t2'][tio.DATA]
+    z = patches_batch['pd'][tio.DATA]
+    
+    output_dict = self(x,y,z)
+
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['rx'], x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['ry'], y)
+      if k == 'rz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['rz'], z)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cx'], x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cy'], y)
+      if k == 'cz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cz'], z)
+      if k == 'm' and self.lw[k] > 0:
+        loss += self.lw[k] * (F.mse_loss(output_dict['my2x'], x) + F.mse_loss(output_dict['mx2y'], y))
+        loss += self.lw[k] * (F.mse_loss(output_dict['my2z'], z) + F.mse_loss(output_dict['mz2y'], y))
+        loss += self.lw[k] * (F.mse_loss(output_dict['mz2x'], x) + F.mse_loss(output_dict['mx2z'], z))
+      if k == 'f' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['fx'], output_dict['fy'])  
+        loss += self.lw[k] * F.mse_loss(output_dict['fz'], output_dict['fy'])  
+        loss += self.lw[k] * F.mse_loss(output_dict['fx'], output_dict['fz'])  
+      if k == 'kld' and self.lw[k] > 0:  
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvarx'] - output_dict['mux'].pow(2) - output_dict['logvarx'].exp())
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvary'] - output_dict['muy'].pow(2) - output_dict['logvary'].exp())
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvarz'] - output_dict['muz'].pow(2) - output_dict['logvarz'].exp())
+
+    self.log('train_loss', loss)
+    return loss
+
+  def validation_step(self, batch, batch_idx):
+    patches_batch = batch
+    x = patches_batch['t1'][tio.DATA]
+    y = patches_batch['t2'][tio.DATA]
+    z = patches_batch['pd'][tio.DATA]
+    
+    output_dict = self(x,y,z)
+
+    loss = 0
+    for k in self.lw.keys():
+      if k == 'rx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['rx'], x)
+      if k == 'ry' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['ry'], y)
+      if k == 'rz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['rz'], z)
+      if k == 'cx' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cx'], x)
+      if k == 'cy' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cy'], y)
+      if k == 'cz' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['cz'], z)
+      if k == 'm' and self.lw[k] > 0:
+        loss += self.lw[k] * (F.mse_loss(output_dict['my2x'], x) + F.mse_loss(output_dict['mx2y'], y))
+        loss += self.lw[k] * (F.mse_loss(output_dict['my2z'], z) + F.mse_loss(output_dict['mz2y'], y))
+        loss += self.lw[k] * (F.mse_loss(output_dict['mz2x'], x) + F.mse_loss(output_dict['mx2z'], z))
+      if k == 'f' and self.lw[k] > 0:
+        loss += self.lw[k] * F.mse_loss(output_dict['fx'], output_dict['fy'])  
+        loss += self.lw[k] * F.mse_loss(output_dict['fz'], output_dict['fy'])  
+        loss += self.lw[k] * F.mse_loss(output_dict['fx'], output_dict['fz'])  
+      if k == 'kld' and self.lw[k] > 0:  
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvarx'] - output_dict['mux'].pow(2) - output_dict['logvarx'].exp())
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvary'] - output_dict['muy'].pow(2) - output_dict['logvary'].exp())
+        loss += -0.5 * self.lw[k] * torch.sum(1 + output_dict['logvarz'] - output_dict['muz'].pow(2) - output_dict['logvarz'].exp())
+
+
+    self.log('val_loss', loss)
+    return loss
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+    return optimizer
