@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 import glob
 import multiprocessing
 
-from beo_pl_nets import DecompNet_IXI, DecompNet_3
+from beo_pl_nets import DecompNet_IXI, DecompNet_3, DecompNet_VAE
 
 import argparse
 
@@ -24,7 +24,7 @@ if __name__ == '__main__':
   parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 50)
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) initialization model', type=str, required=False)
   parser.add_argument('-l', '--latent_dim', help='Dimension of the latent space', type=int, required=False, default = 10)
-  parser.add_argument('-f', '--n_filters', help='Number of filters', type=int, required=False, default = 16)
+  #parser.add_argument('-f', '--n_filters', help='Number of filters', type=int, required=False, default = 16)
   parser.add_argument('--n_filters_encoder', help='Number of filters for latent space encoding', type=int, required=False, default = 8)
   parser.add_argument('--n_filters_feature', help='Number of filters for unet-based feature estimation', type=int, required=False, default = 16)
   parser.add_argument('--n_filters_recon', help='Number of filters for reconstruction', type=int, required=False, default = 16)
@@ -50,7 +50,7 @@ if __name__ == '__main__':
   validation_batch_size = args.batch_size
 
   latent_dim = args.latent_dim 
-  n_filters = args.n_filters
+  #n_filters = args.n_filters
   n_filters_encoder = args.n_filters_encoder
   n_filters_feature = args.n_filters_feature
   n_filters_recon = args.n_filters_recon
@@ -73,7 +73,7 @@ if __name__ == '__main__':
   prefix += '_nfr_'+str(n_filters_recon)
   prefix += '_nfeatures_'+str(n_features)
 
-  all_pds = glob.glob(data_path+'*PD.nii.gz', recursive=True)
+  all_pds = glob.glob(data_path+'*PD-N4.nii.gz', recursive=True)
 
   #Scanner info per sequence : TR, TE, FA
   ScannerInfoT1 = {}
@@ -94,8 +94,8 @@ if __name__ == '__main__':
       site = pd_file.split('/')[5].split('-')[1]
       number = pd_file.split('/')[5].split('-')[2]
 
-      t1_file = data_path+id_subject+'-'+site+'-'+number+'-T1.nii.gz'
-      t2_file = data_path+id_subject+'-'+site+'-'+number+'-T2.nii.gz'
+      t1_file = data_path+id_subject+'-'+site+'-'+number+'-T1-N4.nii.gz'
+      t2_file = data_path+id_subject+'-'+site+'-'+number+'-T2-N4.nii.gz'
      
       #if site != 'IOP':
       if site == 'HH':
@@ -122,7 +122,7 @@ if __name__ == '__main__':
   flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
   noise = tio.RandomNoise(std=0.1, p=0.25)
 
-  transforms = [flip, spatial, bias, normalization, noise]
+  transforms = [flip, spatial, normalization]
 
   training_transform = tio.Compose(transforms)
   validation_transform = tio.Compose([normalization])  
@@ -135,7 +135,7 @@ if __name__ == '__main__':
   num_validation_subjects = num_subjects - num_training_subjects
 
   num_split_subjects = num_training_subjects, num_validation_subjects
-  training_subjects, validation_subjects = torch.utils.data.random_split(subjects, num_split_subjects)
+  training_subjects, validation_subjects = torch.utils.data.random_split(subjects, num_split_subjects, generator=torch.Generator().manual_seed(seed))
 
   training_set = tio.SubjectsDataset(
       training_subjects, transform=training_transform)
@@ -182,9 +182,9 @@ if __name__ == '__main__':
       patches_validation_set, batch_size=validation_batch_size)
 
   if args.model is not None:
-    net = DecompNet_3().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_VAE().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
   else:
-    net = DecompNet_3(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = DecompNet_VAE(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
@@ -233,17 +233,18 @@ if __name__ == '__main__':
       z = patches_batch['pd'][tio.DATA]
       locations = patches_batch[tio.LOCATION]
 
-      rx, ry, rz, cx, cy, cz, fx, fy, fz, zx, zy, zz, my2x, mx2y, my2z, mz2y, mz2x, mx2z = net(x,y,z)
-      aggregator_rx.add_batch(rx, locations)
-      aggregator_ry.add_batch(ry, locations)
-      aggregator_rz.add_batch(rz, locations)
-      aggregator_cx.add_batch(cx, locations)
-      aggregator_cy.add_batch(cy, locations)
-      aggregator_cz.add_batch(cz, locations)
-      aggregator_fx.add_batch(fx, locations)
-      aggregator_fy.add_batch(fy, locations)
-      aggregator_fz.add_batch(fz, locations)
-      aggregator_my2x.add_batch(my2x, locations)
+      output_dict = net(x,y,z)
+
+      aggregator_rx.add_batch(output_dict['rx'], locations)
+      aggregator_ry.add_batch(output_dict['ry'], locations)
+      aggregator_rz.add_batch(output_dict['rz'], locations)
+      aggregator_cx.add_batch(output_dict['cx'], locations)
+      aggregator_cy.add_batch(output_dict['cy'], locations)
+      aggregator_cz.add_batch(output_dict['cz'], locations)
+      aggregator_fx.add_batch(output_dict['fx'], locations)
+      aggregator_fy.add_batch(output_dict['fy'], locations)
+      aggregator_fz.add_batch(output_dict['fz'], locations)
+      aggregator_my2x.add_batch(output_dict['my2x'], locations)
 
   output_rx = aggregator_rx.get_output_tensor()
   output_ry = aggregator_ry.get_output_tensor()
