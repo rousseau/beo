@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 import glob
 import multiprocessing
 
-from beo_pl_nets import DecompNet_IXI, DecompNet_3, DecompNet_VAE
+from beo_pl_nets import DecompNet_IXI, DecompNet_3, DecompNet_VAE, MTL, MTL_net, MTL_loss
 
 import argparse
 
@@ -36,6 +36,12 @@ if __name__ == '__main__':
   parser.add_argument('-q', '--queue', help='Max queue length', type=int, required=False, default = 1024)
   parser.add_argument('--max_subjects', help='Max number of subjects', type=int, required=False, default = 100)
   parser.add_argument('--learning_rate', help='Learning Rate (for optimization)', type=float, required=False, default = 1e-4)
+  parser.add_argument('--prefix', help='Prefix of the output model name', type=str, required=False, default = 'gromovIXI')
+  parser.add_argument('--loss_recon', help='Reconstruction Loss', type=float, required=False, default = 1)
+  parser.add_argument('--loss_cross', help='Cross-modality reconstruction Loss', type=float, required=False, default = 1)
+  parser.add_argument('--loss_feat', help='Feature similarity Loss', type=float, required=False, default = 1)
+  parser.add_argument('--loss_kld', help='Kullback Liebler Divergence Loss', type=float, required=False, default = 0.1)
+  parser.add_argument('--loss_mapping', help='Mapping Loss', type=float, required=False, default = 0)
 
   args = parser.parse_args()
   max_subjects = args.max_subjects
@@ -59,10 +65,18 @@ if __name__ == '__main__':
 
   learning_rate = args.learning_rate
 
+  loss_dict = {}
+  loss_dict['recon'] = args.loss_recon
+  loss_dict['cross'] = args.loss_cross  
+  loss_dict['feat'] = args.loss_feat
+  loss_dict['kld'] = args.loss_kld
+  loss_dict['mapping'] = args.loss_mapping
+
   data_path = home+'/Data/IXI/'
   output_path = home+'/Sync-Exp/Experiments/'
 
-  prefix = 'gromovIXI'
+  prefix = args.prefix
+  prefix += '_loss_'+str(loss_dict['recon'])+'_'+str(loss_dict['cross'])+'_'+str(loss_dict['feat'])+'_'+str(loss_dict['kld'])+'_'+str(loss_dict['mapping'])
   prefix += '_epochs_'+str(num_epochs)
   prefix += '_subj_'+str(max_subjects)
   prefix += '_patches_'+str(patch_size)
@@ -181,10 +195,23 @@ if __name__ == '__main__':
   validation_loader_patches = torch.utils.data.DataLoader(
       patches_validation_set, batch_size=validation_batch_size)
 
+  # if args.model is not None:
+  #   net = DecompNet_VAE().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+  # else:
+  #   net = DecompNet_VAE(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+
+  # net.set_loss(loss_dict)
+
   if args.model is not None:
-    net = DecompNet_VAE().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = MTL().load_from_checkpoint(args.model, latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
   else:
-    net = DecompNet_VAE(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+    net = MTL(latent_dim = latent_dim, n_filters_encoder = n_filters_encoder, n_filters_feature = n_filters_feature, n_filters_recon = n_filters_recon, n_features = n_features, patch_size = patch_size, learning_rate = learning_rate)
+  net.net_model.set_dict(loss_dict)
+  net.loss_model.set_dict(loss_dict)
+
+  print('losses:')
+  for k in loss_dict.keys():
+    print(k, ':', loss_dict[k])
 
   checkpoint_callback = ModelCheckpoint(
     dirpath=output_path,
@@ -195,12 +222,13 @@ if __name__ == '__main__':
   trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, progress_bar_refresh_rate=20, callbacks=[checkpoint_callback], auto_lr_find=True)
   #trainer.tune(net, training_loader_patches, validation_loader_patches)
   #%%
-
-  trainer.fit(net, training_loader_patches, validation_loader_patches)
-  trainer.save_checkpoint(output_path+prefix+'.ckpt')
+  if num_epochs > 0:
+    trainer.fit(net, training_loader_patches, validation_loader_patches)
+    trainer.save_checkpoint(output_path+prefix+'.ckpt')
 
   print('Finished Training')
-
+  print(list(net.loss_model.parameters()))
+  
   #%%
   print('Inference')
 
@@ -213,16 +241,12 @@ if __name__ == '__main__':
     )
 
   patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=1)
-  aggregator_rx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_ry = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_rz = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_cx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_cy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_cz = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_fx = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_fy = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_fz = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
-  aggregator_my2x = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+
+  output_keys = ['rx','ry','rz','cx','cy','cz','fx','fy','fz','zxf','zyf','zzf']
+
+  aggregators = {}
+  for k in output_keys:
+    aggregators[k] = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 
   net.eval()
 
@@ -233,55 +257,20 @@ if __name__ == '__main__':
       z = patches_batch['pd'][tio.DATA]
       locations = patches_batch[tio.LOCATION]
 
-      output_dict = net(x,y,z)
+      output_dict = net.net_model(x,y,z)
 
-      aggregator_rx.add_batch(output_dict['rx'], locations)
-      aggregator_ry.add_batch(output_dict['ry'], locations)
-      aggregator_rz.add_batch(output_dict['rz'], locations)
-      aggregator_cx.add_batch(output_dict['cx'], locations)
-      aggregator_cy.add_batch(output_dict['cy'], locations)
-      aggregator_cz.add_batch(output_dict['cz'], locations)
-      aggregator_fx.add_batch(output_dict['fx'], locations)
-      aggregator_fy.add_batch(output_dict['fy'], locations)
-      aggregator_fz.add_batch(output_dict['fz'], locations)
-      aggregator_my2x.add_batch(output_dict['my2x'], locations)
+      for k in output_keys:
+        aggregators[k].add_batch(output_dict[k], locations)  
 
-  output_rx = aggregator_rx.get_output_tensor()
-  output_ry = aggregator_ry.get_output_tensor()
-  output_rz = aggregator_rz.get_output_tensor()
-  output_cx = aggregator_cx.get_output_tensor()
-  output_cy = aggregator_cy.get_output_tensor()
-  output_cz = aggregator_cz.get_output_tensor()
-  output_fx = aggregator_fx.get_output_tensor()
-  output_fy = aggregator_fy.get_output_tensor()
-  output_fz = aggregator_fz.get_output_tensor()
-  output_my2x = aggregator_my2x.get_output_tensor()
-  
   print('Saving images...')
+  for k in output_keys:
+    output = aggregators[k].get_output_tensor()
+    o = tio.ScalarImage(tensor=output, affine=subject['t1'].affine)
+    o.save(output_path+'gromov_'+k+'.nii.gz')
 
-  o_rx = tio.ScalarImage(tensor=output_rx, affine=subject['t1'].affine)
-  o_rx.save(output_path+'gromov_rx.nii.gz')
-  o_ry = tio.ScalarImage(tensor=output_ry, affine=subject['t1'].affine)
-  o_ry.save(output_path+'gromov_ry.nii.gz')
-  o_rz = tio.ScalarImage(tensor=output_rz, affine=subject['t1'].affine)
-  o_rz.save(output_path+'gromov_rz.nii.gz')
-  o_cx = tio.ScalarImage(tensor=output_cx, affine=subject['t1'].affine)
-  o_cx.save(output_path+'gromov_cx.nii.gz')
-  o_cy = tio.ScalarImage(tensor=output_cy, affine=subject['t1'].affine)
-  o_cy.save(output_path+'gromov_cy.nii.gz')
-  o_cz = tio.ScalarImage(tensor=output_cz, affine=subject['t1'].affine)
-  o_cz.save(output_path+'gromov_cz.nii.gz')
-  #o_fx = tio.ScalarImage(tensor=output_fx, affine=subject['t1'].affine)
-  #o_fx.save(output_path+'gromov_fx.nii.gz')
-  #o_fy = tio.ScalarImage(tensor=output_fy, affine=subject['t1'].affine)
-  #o_fy.save(output_path+'gromov_fy.nii.gz')
-  output_f = torch.mean(torch.stack([output_fx,output_fy,output_fz]),dim=0)
-  o_f = tio.ScalarImage(tensor=output_f, affine=subject['t1'].affine)
-  o_f.save(output_path+'gromov_f.nii.gz')
-
-  #o_my2x = tio.ScalarImage(tensor=output_my2x, affine=subject['t1'].affine)
-  #o_my2x.save(output_path+'gromov_my2x.nii.gz')
-
+  #output_f = torch.mean(torch.stack([output_fx,output_fy,output_fz]),dim=0)
+  #o_f = tio.ScalarImage(tensor=output_f, affine=subject['t1'].affine)
+  #o_f.save(output_path+'gromov_f.nii.gz')
 
   subject['t2'].save(output_path+'gromov_t2.nii.gz')
   subject['t1'].save(output_path+'gromov_t1.nii.gz')
