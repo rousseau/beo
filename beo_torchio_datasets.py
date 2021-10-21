@@ -31,6 +31,5 @@ def get_dhcp(max_subjects=500):
     )
     subjects.append(subject)
 
-  dataset = tio.SubjectsDataset(subjects)
-  print('DHCP Dataset size:', len(dataset), 'subjects')
-  return dataset
+  print('DHCP Dataset size:', len(subjects), 'subjects')
+  return subjects
