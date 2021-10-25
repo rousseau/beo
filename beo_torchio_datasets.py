@@ -33,3 +33,24 @@ def get_dhcp(max_subjects=500):
 
   print('DHCP Dataset size:', len(subjects), 'subjects')
   return subjects
+
+
+def get_equinus_synthesis():
+  subjects = []
+
+  data_path = home+'/Sync-Exp/Data/Equinus_synthesis/'
+  all_hr = glob.glob(data_path+'**/*_cropped.nii.gz', recursive=True)
+  all_lr = glob.glob(data_path+'**/*_simulated.nii.gz', recursive=True)
+
+  for hr_file in all_hr:
+    id_subject = hr_file.split('/')[6].split('_')[0]      
+    lr_file = [s for s in all_lr if id_subject in s][0]
+
+    subject = tio.Subject(
+      hr=tio.ScalarImage(hr_file),
+      lr=tio.ScalarImage(lr_file),
+    )
+    subjects.append(subject)
+
+  print('Equinus Dataset size:', len(subjects), 'subjects')
+  return subjects
