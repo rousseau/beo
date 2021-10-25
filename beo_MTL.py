@@ -16,11 +16,11 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import glob
 import multiprocessing
 
-from beo_torchio_datasets import get_dhcp
+from beo_torchio_datasets import get_dhcp, get_equinus_synthesis
 
 
 
-subjects = get_dhcp(max_subjects=100)
+subjects = get_equinus_synthesis()
 
 # DATA AUGMENTATION
 normalization = tio.ZNormalization()
@@ -50,10 +50,11 @@ print('Training set:', len(training_set), 'subjects')
 print('Validation set:', len(validation_set), 'subjects')
 
 #%%
-num_workers = 8
-patch_size = 64
+num_workers = 16
+patch_size = 128
+patch_overlap = int(patch_size / 2)  
 max_queue_length = 1024
-samples_per_volume = 4
+samples_per_volume = 16
 batch_size = 4
 print('num_workers : '+str(num_workers))
 
@@ -147,13 +148,12 @@ class Unet(pl.LightningModule):
 
   def evaluate_batch(self, batch):
     patches_batch = batch
-    t1 = patches_batch['t1'][tio.DATA]
-    t2 = patches_batch['t2'][tio.DATA]
-    s = patches_batch['label'][tio.DATA]
+    hr = patches_batch['hr'][tio.DATA]
+    lr = patches_batch['lr'][tio.DATA]
 
-    rt2 = self(t2)
+    rlr = self(lr)
     #bce = nn.BCEWithLogitsLoss()
-    loss_recon = F.mse_loss(rt2,t2)
+    loss_recon = F.mse_loss(rlr,hr)
     #loss_seg = bce(st2,s)
     #loss_recon = F.mse_loss(rt2,t1)
     #loss_seg = 0
@@ -178,7 +178,7 @@ class Unet(pl.LightningModule):
 net = Unet(in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu')
 
 prefix = 'unet_recon'
-num_epochs = 5
+num_epochs = 10
 output_path = home+'/Sync-Exp/Experiments/'
 
 checkpoint_callback = ModelCheckpoint(
@@ -198,3 +198,43 @@ trainer = pl.Trainer(gpus=1,
 trainer.fit(net, training_loader_patches, validation_loader_patches)
 trainer.save_checkpoint(output_path+prefix+'.ckpt')  
 print('Finished Training')                      
+
+#%%
+print('Inference')
+subject = validation_set[0]
+
+grid_sampler = tio.inference.GridSampler(
+  subject,
+  patch_size,
+  patch_overlap,
+  )
+
+patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=1)
+
+output_keys = ['rlr']
+
+aggregators = {}
+for k in output_keys:
+  aggregators[k] = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
+
+net.eval()
+
+with torch.no_grad():
+  for patches_batch in patch_loader:
+    hr = patches_batch['hr'][tio.DATA]
+    lr = patches_batch['lr'][tio.DATA]
+    locations = patches_batch[tio.LOCATION]
+
+    rlr = net(lr)
+
+    aggregators['rlr'].add_batch(rlr, locations)  
+
+print('Saving images...')
+for k in output_keys:
+  output = aggregators[k].get_output_tensor()
+  o = tio.ScalarImage(tensor=output, affine=subject['hr'].affine)
+  o.save(output_path+prefix+'_'+k+'.nii.gz')
+
+subject['hr'].save(output_path+prefix+'_hr.nii.gz')
+subject['lr'].save(output_path+prefix+'_lr.nii.gz')
+
