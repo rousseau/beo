@@ -246,7 +246,8 @@ if __name__ == '__main__':
   num_epochs = args.epochs
   output_path = home+'/Sync-Exp/Experiments/'
   prefix = 'resnet_nl10_recon'
-  prefix+= 'ic'+str(in_channels)
+  prefix+= '_ic'+str(in_channels)
+  prefix+= '_e'+str(num_epochs)
 
   patch_overlap = int(patch_size / 2)  
 
