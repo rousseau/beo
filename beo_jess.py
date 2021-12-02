@@ -16,6 +16,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import torchio as tio
 import glob
 
+
+in_channels = 3 #1 or 3
+
 subjects = []
 
 data_path = home+'/Sync-Exp/Data/DHCP/'
@@ -32,12 +35,20 @@ for seg_file in all_seg:
 
   t2_file = [s for s in all_t2s if id_subject in s][0]
   t1_file = [s for s in all_t1s if id_subject in s][0]
-    
-  subject = tio.Subject(
-    hr=tio.ScalarImage(t2_file),
-    lr=tio.ScalarImage(t2_file),
-    #label=tio.LabelMap(seg_file),
-  )
+
+  if in_channels == 1:  
+    subject = tio.Subject(
+      hr=tio.ScalarImage(t2_file),
+      lr_1=tio.ScalarImage(t2_file),
+    )
+  if in_channels == 3:  
+    subject = tio.Subject(
+      hr=tio.ScalarImage(t2_file),
+      lr_1=tio.ScalarImage(t2_file),
+      lr_2=tio.ScalarImage(t2_file),
+      lr_3=tio.ScalarImage(t2_file),
+    )
+  
   subjects.append(subject) 
 
 print('DHCP Dataset size:', len(subjects), 'subjects')
@@ -49,14 +60,28 @@ flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
 
 tocanonical = tio.ToCanonical()
 
-blur_jess = tio.Blur(std=(0.001,0.001,1), exclude='hr')
-downsampling_jess = tio.Resample((0.8,0.8,2), exclude='hr')
-upsampling_jess = tio.Resample(target='hr', exclude='hr')
+b1 = tio.Blur(std=(0.001,0.001,1), include='lr_1') #blur
+d1 = tio.Resample((0.8,0.8,2), include='lr_1')     #downsampling
+u1 = tio.Resample(target='hr', include='lr_1')     #upsampling
 
-#transforms = [flip, spatial, normalization]
-transforms = [tocanonical, flip, spatial, normalization, blur_jess, downsampling_jess, upsampling_jess]
-training_transform = tio.Compose(transforms)
-validation_transform = tio.Compose([tocanonical, normalization, blur_jess, downsampling_jess, upsampling_jess]) 
+if in_channels == 3:
+  b2 = tio.Blur(std=(0.001,1,0.001), include='lr_2') #blur
+  d2 = tio.Resample((0.8,2,0.8), include='lr_2')     #downsampling
+  u2 = tio.Resample(target='hr', include='lr_2')     #upsampling
+
+  b3 = tio.Blur(std=(1,0.001,0.001), include='lr_3') #blur
+  d3 = tio.Resample((2,0.8,0.8), include='lr_3')     #downsampling
+  u3 = tio.Resample(target='hr', include='lr_3')     #upsampling
+
+if in_channels == 1:
+  transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1]
+  training_transform = tio.Compose(transforms)
+  validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1])
+if in_channels == 3:
+  transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3]
+  training_transform = tio.Compose(transforms)
+  validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3])
+
 
 # SPLIT DATA
 seed = 42  # for reproducibility
@@ -172,8 +197,16 @@ class Net(pl.LightningModule):
 
   def evaluate_batch(self, batch):
     patches_batch = batch
-    hr = patches_batch['hr'][tio.DATA]
-    lr = patches_batch['lr'][tio.DATA]
+
+    if self.in_channels == 1:
+      hr = patches_batch['hr'][tio.DATA]
+      lr = patches_batch['lr_1'][tio.DATA]
+    if self.in_channels == 3:  
+      hr = patches_batch['hr'][tio.DATA]
+      lr_1 = patches_batch['lr_1'][tio.DATA]
+      lr_2 = patches_batch['lr_2'][tio.DATA]
+      lr_3 = patches_batch['lr_3'][tio.DATA]
+      lr = torch.concat((lr_1,lr_2,lr_3),1)
 
     rlr = self(lr)
     loss_recon = F.mse_loss(rlr,hr)
@@ -204,15 +237,16 @@ import argparse
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Beo TorchIO inference')
   parser.add_argument('-e', '--epochs', help='Number of epochs (for training)', type=int, required=False, default = 10)
-  parser.add_argument('-i', '--input', help='Input image for inference', type=str, required=False)
+  parser.add_argument('-i', '--input', action='append', help='Input image for inference (axial, coronal, sagittal)', type=str, required=False)
   parser.add_argument('-m', '--model', help='Pytorch model', type=str, required=False)
-  parser.add_argument('-o', '--output', help='Output image', type=str, required=False)
+  #parser.add_argument('-o', '--output', help='Output image', type=str, required=False)
 
   args = parser.parse_args()
   
   num_epochs = args.epochs
   output_path = home+'/Sync-Exp/Experiments/'
   prefix = 'resnet_nl10_recon'
+  prefix+= 'ic'+str(in_channels)
 
   patch_overlap = int(patch_size / 2)  
 
@@ -221,7 +255,7 @@ if __name__ == '__main__':
       print('Loading model.')
       net = Net.load_from_checkpoint(args.model)
     else:  
-      net = Net(in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu')
+      net = Net(in_channels = in_channels, out_channels = 1, n_filters = 32, activation = 'relu')
     
     checkpoint_callback = ModelCheckpoint(
       dirpath=output_path,
@@ -251,9 +285,17 @@ if __name__ == '__main__':
   if num_epochs > 0:
     subject = validation_set[0]
   else:
-    input_subject = tio.Subject(
-          lr=tio.ScalarImage(args.input),
-    )
+    if in_channels == 1:
+      input_subject = tio.Subject(
+        lr_1=tio.ScalarImage(args.input[0]),
+      )
+    if in_channels == 3:
+      input_subject = tio.Subject(
+        lr_1=tio.ScalarImage(args.input[0]),
+        lr_2=tio.ScalarImage(args.input[1]),
+        lr_3=tio.ScalarImage(args.input[2]),                
+      )
+
     transforms = tio.Compose([tocanonical, normalization]) 
     subject = transforms(input_subject)
 
@@ -273,8 +315,14 @@ if __name__ == '__main__':
 
   with torch.no_grad():
     for patches_batch in patch_loader:
-      #hr = patches_batch['hr'][tio.DATA]
-      lr = patches_batch['lr'][tio.DATA]
+      if in_channels == 1:
+        lr = patches_batch['lr_1'][tio.DATA]
+      if in_channels == 3:  
+        lr_1 = patches_batch['lr_1'][tio.DATA]
+        lr_2 = patches_batch['lr_2'][tio.DATA]
+        lr_3 = patches_batch['lr_3'][tio.DATA]
+        lr = torch.concat((lr_1,lr_2,lr_3),1)
+
       locations = patches_batch[tio.LOCATION]
 
       rlr = net(lr)
