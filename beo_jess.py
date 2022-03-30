@@ -78,9 +78,12 @@ if in_channels == 1:
   training_transform = tio.Compose(transforms)
   validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1])
 if in_channels == 3:
-  transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3]
+  #transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3]
+  #training_transform = tio.Compose(transforms)
+  #validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3])
+  transforms = [tocanonical, flip, spatial, normalization, d1, u1, d2, u2, d3, u3]
   training_transform = tio.Compose(transforms)
-  validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1, b2, d2, u2, b3, d3, u3])
+  validation_transform = tio.Compose([tocanonical, normalization, d1, u1, d2, u2, d3, u3])
 
 
 # SPLIT DATA
@@ -183,7 +186,7 @@ class ResNet(torch.nn.Module):
 
 
 class Net(pl.LightningModule):
-  def __init__(self, in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu'):
+  def __init__(self, in_channels = 3, out_channels = 1, n_filters = 32, activation = 'relu'):
     super(Net, self).__init__()
 
     self.in_channels = in_channels
@@ -191,6 +194,7 @@ class Net(pl.LightningModule):
     self.n_features = n_filters
 
     self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+    self.save_hyperparameters()
 
   def forward(self, x):
     return self.net(x)
@@ -314,6 +318,9 @@ if __name__ == '__main__':
   for k in output_keys:
     aggregators[k] = tio.inference.GridAggregator(sampler=grid_sampler, overlap_mode='average')
 
+  device = torch.device('cuda:0')
+  net.to(device)
+
   with torch.no_grad():
     for patches_batch in patch_loader:
       if in_channels == 1:
@@ -326,15 +333,20 @@ if __name__ == '__main__':
 
       locations = patches_batch[tio.LOCATION]
 
+      lr = lr.to(device)
       rlr = net(lr)
 
-      aggregators['rlr'].add_batch(rlr, locations)  
+      aggregators['rlr'].add_batch(rlr.cpu(), locations)  
 
   print('Saving images...')
   for k in output_keys:
     output = aggregators[k].get_output_tensor()
-    o = tio.ScalarImage(tensor=output, affine=subject['lr'].affine)
+    o = tio.ScalarImage(tensor=output, affine=subject['lr_1'].affine)
     o.save(output_path+prefix+'_'+k+'.nii.gz')
 
-  #subject['hr'].save(output_path+prefix+'_hr.nii.gz')
-  subject['lr'].save(output_path+prefix+'_lr.nii.gz')      
+  if num_epochs > 0:
+    subject['hr'].save(output_path+prefix+'_hr.nii.gz')
+  subject['lr_1'].save(output_path+prefix+'_lr_1.nii.gz')      
+  if in_channels == 3:
+    subject['lr_2'].save(output_path+prefix+'_lr_2.nii.gz')      
+    subject['lr_3'].save(output_path+prefix+'_lr_3.nii.gz')      
