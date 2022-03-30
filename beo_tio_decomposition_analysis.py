@@ -22,7 +22,7 @@ import argparse
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Beo TorchIO Visualization')
-  parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) initialization model', type=str, required=False, default = '/home/rousseau/Sync-Exp/Experiments/model.ckpt')
+  parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) initialization model', type=str, required=False, default = '/home/rousseau/Sync-Exp/Experiments/gromov_epochs_5_subj_100_patches_128_sampling_8_latentdim_10_nfilters_16_nfeatures_16.ckpt')
   parser.add_argument('-l', '--latent_dim', help='Dimension of the latent space', type=int, required=False, default = 10)
   parser.add_argument('-f', '--n_filters', help='Number of filters', type=int, required=False, default = 16)
   parser.add_argument('--n_features', help='Number of features', type=int, required=False, default = 16)
