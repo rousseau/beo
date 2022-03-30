@@ -26,7 +26,8 @@ subjects = get_equinus_synthesis()
 normalization = tio.ZNormalization()
 spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
-transforms = [flip, spatial, normalization]
+#transforms = [flip, spatial, normalization]
+transforms = [flip, normalization]
 training_transform = tio.Compose(transforms)
 validation_transform = tio.Compose([normalization])  
 
@@ -51,11 +52,11 @@ print('Validation set:', len(validation_set), 'subjects')
 
 #%%
 num_workers = 16
-patch_size = 128
+patch_size = 96
 patch_overlap = int(patch_size / 2)  
 max_queue_length = 1024
-samples_per_volume = 16
-batch_size = 4
+samples_per_volume = 8
+batch_size = 1
 print('num_workers : '+str(num_workers))
 
 probabilities = {0: 0, 1: 1}
@@ -88,10 +89,51 @@ validation_loader_patches = torch.utils.data.DataLoader(
   patches_validation_set, batch_size=batch_size)
 
 #%%
-class Unet(pl.LightningModule):
-  def __init__(self, in_channels = 1, out_channels = 10, n_filters = 32, activation = 'relu'):
-    super(Unet, self).__init__()
+class ResNetBlock(torch.nn.Module):
+  def __init__(self, in_channels = 32):
+    super(ResNetBlock, self).__init__()
+    self.in_channels = in_channels
+    def double_conv(in_channels):
+      return nn.Sequential(
+        nn.Conv3d(in_channels, in_channels, kernel_size=3, padding=1),
+        nn.BatchNorm3d(in_channels),
+        nn.ReLU(inplace=True),
+        nn.Conv3d(in_channels, in_channels, kernel_size=3, padding=1),
+        nn.BatchNorm3d(in_channels),
+      )
+    self.dc = double_conv(self.in_channels)
+  
+  def forward(self,x):
+    z = self.dc(x)
+    return x+z
 
+class ResNet(torch.nn.Module):
+  def __init__(self, in_channels = 1, out_channels = 10, n_filters = 32, n_layers = 5):
+    super(ResNet, self).__init__()
+    self.in_channels = in_channels
+    self.out_channels = out_channels
+    self.n_features = n_filters
+    self.n_layers = n_layers
+
+    self.blocks = torch.nn.ModuleList()
+    for i in range(n_layers):
+      self.blocks.append(ResNetBlock(in_channels = self.n_features))
+      
+    self.inconv = nn.Conv3d(self.in_channels, self.n_features, kernel_size=3, padding=1)
+    self.outconv = nn.Conv3d(self.n_features, self.out_channels, kernel_size=3, padding=1)
+
+  def forward(self,x):
+    z = self.inconv(x)
+    z = nn.ReLU()(z)
+    for i in range(self.n_layers):
+      z = self.blocks[i](z)
+    z = self.outconv(z)
+    return z  
+
+
+class UNet(torch.nn.Module):
+  def __init__(self, in_channels = 1, out_channels = 10, n_filters = 32):
+    super(UNet, self).__init__()
     self.in_channels = in_channels
     self.out_channels = out_channels
     self.n_features = n_filters
@@ -100,6 +142,12 @@ class Unet(pl.LightningModule):
     def double_conv(in_channels, out_channels):
         return nn.Sequential(
             nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm3d(out_channels),
             nn.ReLU(inplace=True),
             nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
@@ -121,19 +169,21 @@ class Unet(pl.LightningModule):
     #level 1 : downsampled by 2
     #level 2 : downsampled by 4
 
-    x_l0 = x
-    x_l1 = self.mp(x_l0)
-    x_l2 = self.mp(x_l1)
+    # x_l0 = x
+    # x_l1 = self.mp(x_l0)
+    # x_l2 = self.mp(x_l1)
 
-    x_l2_conv = self.dc1(x_l2)
-    x_l2_up = self.up(x_l2_conv)
+    # x_l2_conv = self.dc1(x_l2)
+    # x_l2_up = self.up(x_l2_conv)
 
-    x_l1_conv = self.dc2(x_l1) + x_l2_up
-    x_l1_up = self.up(x_l1_conv)
+    # x_l1_conv = self.dc2(x_l1) + x_l2_up
+    # x_l1_up = self.up(x_l1_conv)
 
-    x_l0_conv = self.dc3(x_l0) + x_l1_up
+    # x_l0_conv = self.dc3(x_l0) + x_l1_up
 
-    xout = self.out(x_l0_conv)
+    # xout = self.out(x_l0_conv)
+
+    xout = self.dc1(x)
 
     if self.activation == 'tanh':
       return nn.Tanh()(xout)
@@ -145,6 +195,19 @@ class Unet(pl.LightningModule):
       return nn.functional.gumbel_softmax(xout, hard=True)
     else:
       return xout   
+
+class Net(pl.LightningModule):
+  def __init__(self, in_channels = 1, out_channels = 10, n_filters = 32, activation = 'relu'):
+    super(Net, self).__init__()
+
+    self.in_channels = in_channels
+    self.out_channels = out_channels
+    self.n_features = n_filters
+
+    self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+
+  def forward(self, x):
+    return self.net(x)
 
   def evaluate_batch(self, batch):
     patches_batch = batch
@@ -175,10 +238,10 @@ class Unet(pl.LightningModule):
     optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
     return optimizer  
 
-net = Unet(in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu')
+net = Net(in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu')
 
-prefix = 'unet_recon'
-num_epochs = 10
+prefix = 'resnet_nl10_recon'
+num_epochs = 25
 output_path = home+'/Sync-Exp/Experiments/'
 
 checkpoint_callback = ModelCheckpoint(
