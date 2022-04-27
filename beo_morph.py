@@ -75,9 +75,8 @@ print('shape of training data', x_train.shape)
 #%% unet 2d
 import torch
 import torch.nn as nn 
-import pytorch_lightning as pl
 
-class Unet(pl.LightningModule):
+class Unet(nn.Module):
     def __init__(self, n_channels = 2, n_classes = 2, n_features = 32):
         super(Unet, self).__init__()
 
@@ -128,7 +127,113 @@ class Unet(pl.LightningModule):
 #%%
 # check size
 #tmp = torch.tensor(x_train[0,:,:])
-tmp = torch.ones([1,1,32,32])
+tmp = torch.ones([1,2,32,32])
 
 net = Unet()
 outtmp = net.forward(tmp)
+#%%
+import torch.nn.functional as F
+# code from voxelmorph repo
+class SpatialTransformer(nn.Module):
+    """
+    N-D Spatial Transformer
+    """
+
+    def __init__(self, size, mode='bilinear'):
+        super().__init__()
+
+        self.mode = mode
+
+        # create sampling grid
+        vectors = [torch.arange(0, s) for s in size]
+        grids = torch.meshgrid(vectors)
+        grid = torch.stack(grids)
+        grid = torch.unsqueeze(grid, 0)
+        grid = grid.type(torch.FloatTensor)
+
+        # registering the grid as a buffer cleanly moves it to the GPU, but it also
+        # adds it to the state dict. this is annoying since everything in the state dict
+        # is included when saving weights to disk, so the model files are way bigger
+        # than they need to be. so far, there does not appear to be an elegant solution.
+        # see: https://discuss.pytorch.org/t/how-to-register-buffer-without-polluting-state-dict
+        self.register_buffer('grid', grid)
+
+    def forward(self, src, flow):
+        # new locations
+        new_locs = self.grid + flow
+        shape = flow.shape[2:]
+
+        # need to normalize grid values to [-1, 1] for resampler
+        for i in range(len(shape)):
+            new_locs[:, i, ...] = 2 * (new_locs[:, i, ...] / (shape[i] - 1) - 0.5)
+
+        # move channels dim to last position
+        if len(shape) == 2:
+            new_locs = new_locs.permute(0, 2, 3, 1)
+            new_locs = new_locs[..., [1, 0]]
+        elif len(shape) == 3:
+            new_locs = new_locs.permute(0, 2, 3, 4, 1)
+            new_locs = new_locs[..., [2, 1, 0]]
+
+        return F.grid_sample(src, new_locs, align_corners=True, mode=self.mode)
+#%%
+tmpsrc = torch.ones([1,1,32,32])
+tmpflow = torch.ones([1,2,32,32])
+net = SpatialTransformer(size=(32,32))
+outtmp = net.forward(tmpsrc,tmpflow)
+
+#%%
+# todo lightning simple : unet fournit le flow, on deforme, on calcule le cout.
+# ensuite ajout du diffeo (quelle difference, calcul de l'inverse, etc.)
+# gestion du downsampling du flow
+
+import pytorch_lightning as pl
+
+class morph_model(pl.LightningModule):
+  def __init__(self, unet_model, st_model):
+    super().__init__()   
+    self.unet_model = unet_model
+    self.st_model = st_model
+
+  def forward(self,source,target):
+      #concatenate images for unet
+      x = torch.cat([source,target],dim=1)
+      flow = self.unet_model(x)
+      
+    return 
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+    return optimizer
+
+  def training_step(self, batch, batch_idx):
+    x, y = batch
+    rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = self(x,y)
+
+    loss = {}
+    for k in lw.keys(): #compute only loss whose weight is non zero
+      if lw[k] > 0:
+        if k == 'normv':
+          loss[k] = torch.sum( norm_v(feature_net,forward_blocks, x) )
+          #loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)              
+        elif k == 'normdv':
+          loss[k] = torch.sum( block_lipschitz(block_x2y_list,n_filters) )
+        else:
+          loss[k] = mse(eval(k),eval(k[-1]))
+      else:
+        loss[k] = torch.Tensor([0])[0]
+
+    total_loss = 0
+    for k in loss.keys():
+      if lw[k] > 0:
+        total_loss += lw[k] * loss[k]
+
+    training_loss['loss'][-1] += total_loss.item() * x.shape[0]
+
+    for k in loss.keys():
+      training_loss[k][-1] += loss[k].item() * x.shape[0]
+
+
+    #loss = F.mse_loss(rx2y,y) + F.mse_loss(ry2x,x) + F.mse_loss(rx2x,x) + F.mse_loss(ry2y,y)
+    #loss+= F.mse_loss(rx2y2x,x) + F.mse_loss(ry2x2y,y) + F.mse_loss(idx2x,x) + F.mse_loss(idy2y,y)
+    return total_loss      
