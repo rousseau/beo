@@ -25,8 +25,8 @@ y_test = y_test_all[y_test_all == digit]
 #%%    
 import matplotlib.pyplot as plt
 
-plt.imshow(x_train_all[0,:,:], cmap="gray")
-plt.show()
+#plt.imshow(x_train_all[0,:,:], cmap="gray")
+#plt.show()
 
 #%% split train into train and validation
 
@@ -48,6 +48,7 @@ nb_vis = 5
 # choose nb_vis sample indexes
 idx = np.random.choice(x_train.shape[0], nb_vis, replace=False)
 example_digits = [f for f in x_train[idx, ...]]
+plt.figure()
 ax1 = plt.subplot(151)
 ax1.imshow(example_digits[0], cmap="gray")
 ax2 = plt.subplot(152)
@@ -77,7 +78,7 @@ import torch
 import torch.nn as nn 
 
 class Unet(nn.Module):
-    def __init__(self, n_channels = 2, n_classes = 2, n_features = 32):
+    def __init__(self, n_channels = 2, n_classes = 2, n_features = 8):
         super(Unet, self).__init__()
 
         self.n_channels = n_channels
@@ -189,51 +190,219 @@ outtmp = net.forward(tmpsrc,tmpflow)
 
 import pytorch_lightning as pl
 
+train_losses = []
+
 class morph_model(pl.LightningModule):
-  def __init__(self, unet_model, st_model):
+  def __init__(self, shape):
     super().__init__()   
-    self.unet_model = unet_model
-    self.st_model = st_model
+    self.shape = shape
+    self.unet_model = Unet()
+    self.transformer = SpatialTransformer(size=shape)
 
   def forward(self,source,target):
-      #concatenate images for unet
-      x = torch.cat([source,target],dim=1)
-      flow = self.unet_model(x)
-      
-    return 
+    #concatenate images for unet
+    x = torch.cat([source,target],dim=1)
+    flow = self.unet_model(x)
+    y_source = self.transformer(source, flow)
+    
+    return y_source, flow 
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
     return optimizer
 
   def training_step(self, batch, batch_idx):
-    x, y = batch
-    rx2y,ry2x,rx2x,ry2y,rx2y2x,ry2x2y,idx2x,idy2y = self(x,y)
+    source, target = batch
 
-    loss = {}
-    for k in lw.keys(): #compute only loss whose weight is non zero
-      if lw[k] > 0:
-        if k == 'normv':
-          loss[k] = torch.sum( norm_v(feature_net,forward_blocks, x) )
-          #loss[k] = loss_sobolev_norm_v(feature_net,forward_blocks, block_x2y_list, n_filters, x)              
-        elif k == 'normdv':
-          loss[k] = torch.sum( block_lipschitz(block_x2y_list,n_filters) )
-        else:
-          loss[k] = mse(eval(k),eval(k[-1]))
-      else:
-        loss[k] = torch.Tensor([0])[0]
+    y_source,flow = self(source,target)
+    
+    loss = F.mse_loss(target,y_source)
+    self.log('train_loss', loss)
+    train_losses.append(loss)
+    return loss 
 
-    total_loss = 0
-    for k in loss.keys():
-      if lw[k] > 0:
-        total_loss += lw[k] * loss[k]
+#%%
+tmpsrc = torch.ones([1,1,32,32])
+tmptar = torch.ones([1,1,32,32])
+net = morph_model(shape=(32,32))
+outtmp = net.forward(tmpsrc,tmptar)
 
-    training_loss['loss'][-1] += total_loss.item() * x.shape[0]
+#%%
 
-    for k in loss.keys():
-      training_loss[k][-1] += loss[k].item() * x.shape[0]
+batch_size = 32
+n_training = x_train.shape[0]
+source = torch.reshape(torch.Tensor(x_train[:n_training, ...]),(n_training,1,32,32))
+#target =  torch.reshape(torch.Tensor(x_train[-n_training:, ...]),(n_training,1,32,32))
+
+#trainset = torch.utils.data.TensorDataset(source, target)
+#trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
+
+from torch.utils.data import Dataset
+class CustomDataSet(Dataset):
+  def __init__(self, X):
+    self.X = X
+    self.len = len(self.X)
+
+  def __len__(self):
+    return self.len
+
+  def __getitem__(self, index):
+    index_source = torch.randint(self.len,(1,))
+    index_target = torch.randint(self.len,(1,))
+
+    _source = torch.reshape(self.X[index_source],(1,32,32))
+    _target = torch.reshape(self.X[index_target],(1,32,32))
+    
+    return _source, _target
+
+trainset = CustomDataSet(source)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
 
 
-    #loss = F.mse_loss(rx2y,y) + F.mse_loss(ry2x,x) + F.mse_loss(rx2x,x) + F.mse_loss(ry2y,y)
-    #loss+= F.mse_loss(rx2y2x,x) + F.mse_loss(ry2x2y,y) + F.mse_loss(idx2x,x) + F.mse_loss(idy2y,y)
-    return total_loss      
+#%%
+from pytorch_lightning.loggers import TensorBoardLogger
+
+trainer = pl.Trainer(gpus=1, 
+                     max_epochs=25,
+                     logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
+trainer.fit(net, trainloader)     
+
+#%%
+plt.figure()
+plt.plot(train_losses)
+plt.title('loss function', size=10)
+plt.xlabel('steps', size=10)
+plt.ylabel('loss value', size=10)
+
+#%%
+
+def visualization(source_np, target_np, net):
+  #convert numpy to torch and reshape
+  source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
+  target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
+  #prediction
+  warped, flow = net.forward(source,target)
+  #convert to numpy
+  warped_np = warped.cpu().detach().numpy()
+  flow_np = flow.cpu().detach().numpy()
+  #plot
+  plt.figure()
+  ax1 = plt.subplot(141)
+  ax1.imshow(np.reshape(source_np,(32,32)), cmap="gray")
+  ax2 = plt.subplot(142)
+  ax2.imshow(np.reshape(target_np,(32,32)), cmap="gray")
+  ax3 = plt.subplot(143)
+  ax3.imshow(np.reshape(warped_np,(32,32)), cmap="gray")
+  ax4 = plt.subplot(144)
+  ax4.imshow(np.reshape(target_np-warped_np,(32,32)), cmap="gray")
+  plt.show()
+  
+  plt.figure()
+  plt.quiver(flow_np[0,0,:,:],flow_np[0,1,:,:])
+  plt.show()
+
+#%%
+n_source = 0
+n_target = 6
+visualization(x_train[n_source, ...], x_train[n_target, ...], net)
+
+#%% Generalization on another digit
+digit = 5
+
+x_fives = x_train_all[y_train_all == digit, ...]
+x_fives = np.pad(x_fives, pad_amount, 'constant')
+
+n_source = 0
+n_target = 2
+source = torch.reshape(torch.Tensor(x_fives[n_source, ...]),(1,1,32,32))
+target =  torch.reshape(torch.Tensor(x_fives[n_target, ...]),(1,1,32,32))
+
+warped, flow = net.forward(source,target)
+
+source_np = source.cpu().detach().numpy()
+target_np = target.cpu().detach().numpy()
+warped_np = warped.cpu().detach().numpy()
+flow_np = flow.cpu().detach().numpy()
+
+plt.figure()
+ax1 = plt.subplot(141)
+ax1.imshow(np.reshape(source_np,(32,32)), cmap="gray")
+ax2 = plt.subplot(142)
+ax2.imshow(np.reshape(target_np,(32,32)), cmap="gray")
+ax3 = plt.subplot(143)
+ax3.imshow(np.reshape(warped_np,(32,32)), cmap="gray")
+ax4 = plt.subplot(144)
+ax4.imshow(np.reshape(target_np-warped_np,(32,32)), cmap="gray")
+plt.show()
+
+#%% Diffeomorphism (SVF)
+
+#from voxelmorph repo
+class VecInt(nn.Module):
+    """
+    Integrates a vector field via scaling and squaring.
+    """
+
+    def __init__(self, inshape, nsteps):
+        super().__init__()
+
+        assert nsteps >= 0, 'nsteps should be >= 0, found: %d' % nsteps
+        self.nsteps = nsteps
+        self.scale = 1.0 / (2 ** self.nsteps)
+        self.transformer = SpatialTransformer(inshape)
+
+    def forward(self, vec):
+        vec = vec * self.scale
+        for _ in range(self.nsteps):
+            vec = vec + self.transformer(vec, vec)
+        return vec
+
+
+class SVF_model(pl.LightningModule):
+  def __init__(self, shape, int_steps = 7):
+    super().__init__()   
+    self.shape = shape
+    self.unet_model = Unet()
+    self.transformer = SpatialTransformer(size=shape)
+    self.int_steps = int_steps #number of integration step (i.e. flow is integrated from velocity fields). 
+    self.vecint = VecInt(inshape=shape, nsteps=int_steps)
+    
+  def forward(self,source,target):
+    #concatenate images for unet
+    x = torch.cat([source,target],dim=1)
+    flow = self.unet_model(x)
+    
+    if self.int_steps > 0:
+      flow = self.vecint(flow)
+    
+    y_source = self.transformer(source, flow)
+    
+    return y_source, flow 
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+    return optimizer
+
+  def training_step(self, batch, batch_idx):
+    source, target = batch
+
+    y_source,flow = self(source,target)
+    
+    loss = F.mse_loss(target,y_source)
+    self.log('train_loss', loss)
+    train_losses.append(loss)
+    return loss 
+
+#%%
+svf_net = SVF_model(shape=(32,32))
+
+svf_trainer = pl.Trainer(gpus=1, 
+                     max_epochs=25,
+                     logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
+svf_trainer.fit(svf_net, trainloader)     
+
+#%%
+n_source = 0
+n_target = 6
+
+visualization(x_train[n_source, ...], x_train[n_target, ...], svf_net)
