@@ -217,7 +217,7 @@ class morph_model(pl.LightningModule):
     y_source,flow = self(source,target)
     
     loss = F.mse_loss(target,y_source)
-    self.log('train_loss', loss)
+    #self.log('train_loss', loss)
     train_losses.append(loss)
     return loss 
 
@@ -268,15 +268,15 @@ trainer = pl.Trainer(gpus=1,
 trainer.fit(net, trainloader)     
 
 #%%
-plt.figure()
-plt.plot(train_losses)
-plt.title('loss function', size=10)
-plt.xlabel('steps', size=10)
-plt.ylabel('loss value', size=10)
+#plt.figure()
+#plt.plot(train_losses.cpu().detach().numpy())
+#plt.title('loss function', size=10)
+#plt.xlabel('steps', size=10)
+#plt.ylabel('loss value', size=10)
 
 #%%
 
-def visualization(source_np, target_np, net):
+def visualization(source_np, target_np, net, show_flow = False):
   #convert numpy to torch and reshape
   source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
   target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
@@ -297,9 +297,10 @@ def visualization(source_np, target_np, net):
   ax4.imshow(np.reshape(target_np-warped_np,(32,32)), cmap="gray")
   plt.show()
   
-  plt.figure()
-  plt.quiver(flow_np[0,0,:,:],flow_np[0,1,:,:])
-  plt.show()
+  if show_flow:
+    plt.figure()
+    plt.quiver(flow_np[0,0,:,:],flow_np[0,1,:,:])
+    plt.show()
 
 #%%
 n_source = 0
@@ -389,8 +390,7 @@ class SVF_model(pl.LightningModule):
     y_source,flow = self(source,target)
     
     loss = F.mse_loss(target,y_source)
-    self.log('train_loss', loss)
-    train_losses.append(loss)
+    #self.log('train_loss', loss)
     return loss 
 
 #%%
@@ -406,3 +406,57 @@ n_source = 0
 n_target = 6
 
 visualization(x_train[n_source, ...], x_train[n_target, ...], svf_net)
+
+#%% Bidirectional registration
+class SVF2_model(pl.LightningModule):
+  def __init__(self, shape, int_steps = 7):
+    super().__init__()   
+    self.shape = shape
+    self.unet_model = Unet()
+    self.transformer = SpatialTransformer(size=shape)
+    self.int_steps = int_steps #number of integration step (i.e. flow is integrated from velocity fields). 
+    self.vecint = VecInt(inshape=shape, nsteps=int_steps)
+    
+  def forward(self,source,target):
+    #concatenate images for unet
+    x = torch.cat([source,target],dim=1)
+    forward_velocity = self.unet_model(x)
+    
+    backward_velocity = -forward_velocity
+    if self.int_steps > 0:
+      forward_flow = self.vecint(forward_velocity)
+      backward_flow= self.vecint(backward_velocity)
+    
+    y_source = self.transformer(source, forward_flow)
+    y_target = self.transformer(target, backward_flow)
+    
+    return y_source, y_target 
+
+  def configure_optimizers(self):
+    optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+    return optimizer
+
+  def training_step(self, batch, batch_idx):
+    source, target = batch
+
+    y_source,y_target = self(source,target)
+    
+    loss = F.mse_loss(target,y_source) + F.mse_loss(y_target,source)
+    #self.log('train_loss', loss)
+    return loss 
+
+#%%
+svf_bidir_net = SVF2_model(shape=(32,32))
+
+svf_bidir_trainer = pl.Trainer(gpus=1, 
+                     max_epochs=25,
+                     logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
+svf_bidir_trainer.fit(svf_bidir_net, trainloader)  
+
+#%%
+n_source = 0
+n_target = 10
+
+visualization(x_train[n_source, ...], x_train[n_target, ...], net)
+visualization(x_train[n_source, ...], x_train[n_target, ...], svf_net)
+visualization(x_train[n_source, ...], x_train[n_target, ...], svf_bidir_net)
