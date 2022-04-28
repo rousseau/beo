@@ -1,5 +1,6 @@
 from torchvision import datasets
 import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
 
 transform = transforms.ToTensor()
 
@@ -21,12 +22,6 @@ x_train = x_train_all[y_train_all == digit, ...]
 y_train = y_train_all[y_train_all == digit]
 x_test = x_test_all[y_test_all == digit, ...]
 y_test = y_test_all[y_test_all == digit]
-
-#%%    
-import matplotlib.pyplot as plt
-
-#plt.imshow(x_train_all[0,:,:], cmap="gray")
-#plt.show()
 
 #%% split train into train and validation
 
@@ -127,7 +122,6 @@ class Unet(nn.Module):
 
 #%%
 # check size
-#tmp = torch.tensor(x_train[0,:,:])
 tmp = torch.ones([1,2,32,32])
 
 net = Unet()
@@ -184,9 +178,6 @@ net = SpatialTransformer(size=(32,32))
 outtmp = net.forward(tmpsrc,tmpflow)
 
 #%%
-# todo lightning simple : unet fournit le flow, on deforme, on calcule le cout.
-# ensuite ajout du diffeo (quelle difference, calcul de l'inverse, etc.)
-# gestion du downsampling du flow
 
 import pytorch_lightning as pl
 
@@ -218,7 +209,7 @@ class morph_model(pl.LightningModule):
     
     loss = F.mse_loss(target,y_source)
     #self.log('train_loss', loss)
-    train_losses.append(loss)
+    train_losses.append(loss.cpu().detach().numpy())
     return loss 
 
 #%%
@@ -232,10 +223,6 @@ outtmp = net.forward(tmpsrc,tmptar)
 batch_size = 32
 n_training = x_train.shape[0]
 source = torch.reshape(torch.Tensor(x_train[:n_training, ...]),(n_training,1,32,32))
-#target =  torch.reshape(torch.Tensor(x_train[-n_training:, ...]),(n_training,1,32,32))
-
-#trainset = torch.utils.data.TensorDataset(source, target)
-#trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
 
 from torch.utils.data import Dataset
 class CustomDataSet(Dataset):
@@ -268,44 +255,50 @@ trainer = pl.Trainer(gpus=1,
 trainer.fit(net, trainloader)     
 
 #%%
-#plt.figure()
-#plt.plot(train_losses.cpu().detach().numpy())
-#plt.title('loss function', size=10)
-#plt.xlabel('steps', size=10)
-#plt.ylabel('loss value', size=10)
+plt.figure()
+plt.plot(train_losses)
+plt.title('loss function', size=10)
+plt.xlabel('steps', size=10)
+plt.ylabel('loss value', size=10)
 
 #%%
 
-def visualization(source_np, target_np, net, show_flow = False):
-  #convert numpy to torch and reshape
-  source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
-  target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
-  #prediction
-  warped, flow = net.forward(source,target)
-  #convert to numpy
-  warped_np = warped.cpu().detach().numpy()
-  flow_np = flow.cpu().detach().numpy()
-  #plot
-  plt.figure()
-  ax1 = plt.subplot(141)
-  ax1.imshow(np.reshape(source_np,(32,32)), cmap="gray")
-  ax2 = plt.subplot(142)
-  ax2.imshow(np.reshape(target_np,(32,32)), cmap="gray")
-  ax3 = plt.subplot(143)
-  ax3.imshow(np.reshape(warped_np,(32,32)), cmap="gray")
-  ax4 = plt.subplot(144)
-  ax4.imshow(np.reshape(target_np-warped_np,(32,32)), cmap="gray")
+def visu_img(imgs):
+  n_imgs = len(imgs)
+  fig, axs = plt.subplots(1, n_imgs)
+  if n_imgs == 1:
+    axs = [axs]    
+  for i in range(n_imgs):
+    axs[i].imshow(imgs[i], interpolation="nearest", cmap="gray")    
+  plt.show()
+
+def visu_flow(flows):
+  n_flows = len(flows)
+  fig, axs = plt.subplots(1, n_flows)
+  if n_flows == 1:
+    axs = [axs]    
+  for i in range(n_flows):
+    u, v = flows[i][0,0,:,:],flows[i][0,1,:,:]
+    axs[i].quiver(u,v)
   plt.show()
   
-  if show_flow:
-    plt.figure()
-    plt.quiver(flow_np[0,0,:,:],flow_np[0,1,:,:])
-    plt.show()
 
 #%%
 n_source = 0
 n_target = 6
-visualization(x_train[n_source, ...], x_train[n_target, ...], net)
+source_np = x_train[n_source, ...]
+target_np = x_train[n_target, ...]
+
+source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
+target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
+
+y_source, flow = net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
+flow_np = flow.cpu().detach().numpy()
+
+visu_img([source_np, target_np, y_source_np])
+visu_flow([flow_np])
+
 
 #%% Generalization on another digit
 digit = 5
@@ -404,11 +397,22 @@ svf_trainer.fit(svf_net, trainloader)
 #%%
 n_source = 0
 n_target = 6
+source_np = x_train[n_source, ...]
+target_np = x_train[n_target, ...]
 
-visualization(x_train[n_source, ...], x_train[n_target, ...], svf_net)
+source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
+target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
+
+y_source, flow = svf_net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
+flow_np = flow.cpu().detach().numpy()
+
+visu_img([source_np, target_np, y_source_np])
+visu_flow([flow_np])
+
 
 #%% Bidirectional registration
-class SVF2_model(pl.LightningModule):
+class SVF_bidir_model(pl.LightningModule):
   def __init__(self, shape, int_steps = 7):
     super().__init__()   
     self.shape = shape
@@ -446,7 +450,7 @@ class SVF2_model(pl.LightningModule):
     return loss 
 
 #%%
-svf_bidir_net = SVF2_model(shape=(32,32))
+svf_bidir_net = SVF_bidir_model(shape=(32,32))
 
 svf_bidir_trainer = pl.Trainer(gpus=1, 
                      max_epochs=25,
@@ -457,6 +461,21 @@ svf_bidir_trainer.fit(svf_bidir_net, trainloader)
 n_source = 0
 n_target = 10
 
-visualization(x_train[n_source, ...], x_train[n_target, ...], net)
-visualization(x_train[n_source, ...], x_train[n_target, ...], svf_net)
-visualization(x_train[n_source, ...], x_train[n_target, ...], svf_bidir_net)
+source_np = x_train[n_source, ...]
+target_np = x_train[n_target, ...]
+
+source = torch.reshape(torch.Tensor(source_np),(1,1,32,32))
+target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
+
+y_source, flow = net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
+visu_img([source_np, target_np, y_source_np])
+
+y_source, flow = svf_net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
+visu_img([source_np, target_np, y_source_np])
+
+y_source, y_target = svf_bidir_net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
+y_target_np = np.reshape(y_target.cpu().detach().numpy(),(32,32))
+visu_img([source_np, target_np, y_source_np,y_target_np])
