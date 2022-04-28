@@ -193,6 +193,7 @@ class morph_model(pl.LightningModule):
   def forward(self,source,target):
     #concatenate images for unet
     x = torch.cat([source,target],dim=1)
+    print(x.shape)
     flow = self.unet_model(x)
     y_source = self.transformer(source, flow)
     
@@ -220,10 +221,6 @@ outtmp = net.forward(tmpsrc,tmptar)
 
 #%%
 
-batch_size = 32
-n_training = x_train.shape[0]
-source = torch.reshape(torch.Tensor(x_train[:n_training, ...]),(n_training,1,32,32))
-
 from torch.utils.data import Dataset
 class CustomDataSet(Dataset):
   def __init__(self, X):
@@ -237,10 +234,17 @@ class CustomDataSet(Dataset):
     index_source = torch.randint(self.len,(1,))
     index_target = torch.randint(self.len,(1,))
 
-    _source = torch.reshape(self.X[index_source],(1,32,32))
-    _target = torch.reshape(self.X[index_target],(1,32,32))
+    #_source = torch.unsqueeze(self.X[index_source],0)
+    #_target = torch.unsqueeze(self.X[index_target],0)
+    _source = self.X[index_source][0]
+    _target = self.X[index_target][0]
     
     return _source, _target
+
+#%%
+batch_size = 32
+n_training = x_train.shape[0]
+source = torch.reshape(torch.Tensor(x_train[:n_training, ...]),(n_training,1,32,32))
 
 trainset = CustomDataSet(source)
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
@@ -248,9 +252,10 @@ trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
 
 #%%
 from pytorch_lightning.loggers import TensorBoardLogger
+n_epochs = 10
 
 trainer = pl.Trainer(gpus=1, 
-                     max_epochs=25,
+                     max_epochs=n_epochs,
                      logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
 trainer.fit(net, trainloader)     
 
@@ -390,7 +395,7 @@ class SVF_model(pl.LightningModule):
 svf_net = SVF_model(shape=(32,32))
 
 svf_trainer = pl.Trainer(gpus=1, 
-                     max_epochs=25,
+                     max_epochs=n_epochs,
                      logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
 svf_trainer.fit(svf_net, trainloader)     
 
@@ -453,7 +458,7 @@ class SVF_bidir_model(pl.LightningModule):
 svf_bidir_net = SVF_bidir_model(shape=(32,32))
 
 svf_bidir_trainer = pl.Trainer(gpus=1, 
-                     max_epochs=25,
+                     max_epochs=n_epochs,
                      logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
 svf_bidir_trainer.fit(svf_bidir_net, trainloader)  
 
@@ -469,13 +474,58 @@ target =  torch.reshape(torch.Tensor(target_np),(1,1,32,32))
 
 y_source, flow = net.forward(source,target)
 y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
-visu_img([source_np, target_np, y_source_np])
+flow_np = flow.cpu().detach().numpy()
+flow_norm = np.reshape(np.linalg.norm(flow_np, axis=1),(32,32))
+visu_img([source_np, target_np, y_source_np, flow_norm])
 
 y_source, flow = svf_net.forward(source,target)
 y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
-visu_img([source_np, target_np, y_source_np])
+flow_np = flow.cpu().detach().numpy()
+flow_norm = np.reshape(np.linalg.norm(flow_np, axis=1),(32,32))
+visu_img([source_np, target_np, y_source_np, flow_norm])
 
 y_source, y_target = svf_bidir_net.forward(source,target)
 y_source_np = np.reshape(y_source.cpu().detach().numpy(),(32,32))
 y_target_np = np.reshape(y_target.cpu().detach().numpy(),(32,32))
+visu_img([source_np, target_np, y_source_np,y_target_np])
+
+#%%
+
+from os.path import expanduser
+home = expanduser("~")
+
+npz = np.load(home+'/Sync/Data/tutorial_data/tutorial_data.npz')
+brains = npz['train']
+vol_shape = brains.shape[1:]
+print('train shape:', brains.shape)
+
+visu_img([brains[0,...],brains[1,...],brains[3,...]])
+
+n_training = brains.shape[0]
+source = torch.reshape(torch.Tensor(brains[:n_training, ...]),(n_training,1,192,160))
+trainset = CustomDataSet(source)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size)
+
+#%%
+n_epochs = 250
+svf_bidir_net = SVF_bidir_model(shape=(192,160))
+svf_bidir_trainer = pl.Trainer(gpus=1, 
+                     max_epochs=n_epochs,
+                     logger=TensorBoardLogger(save_dir='lightning_logs', default_hp_metric=False, log_graph=True))
+
+svf_bidir_trainer.fit(svf_bidir_net, trainloader)  
+
+#%%
+n_source = 1
+n_target = 2
+
+source_np = brains[n_source, ...]
+target_np = brains[n_target, ...]
+
+source = torch.reshape(torch.Tensor(source_np),(1,1,192,160))
+target =  torch.reshape(torch.Tensor(target_np),(1,1,192,160))
+
+y_source, y_target = svf_bidir_net.forward(source,target)
+y_source_np = np.reshape(y_source.cpu().detach().numpy(),(192,160))
+y_target_np = np.reshape(y_target.cpu().detach().numpy(),(192,160))
 visu_img([source_np, target_np, y_source_np,y_target_np])
