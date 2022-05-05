@@ -254,8 +254,8 @@ class atlas_building_model(pl.LightningModule):
   def training_epoch_end(self, training_step_outputs):
     #all_preds = torch.stack(training_step_outputs)
     self.e += 1
-    print("training_epoch_end")
-    save_image(self.atlas[0,:,:], home+'/Sync-Exp/atlas_'+str(self.e)+'.png')
+    if (self.e-1) % 10 == 0:
+      save_image(self.atlas[0,:,:], home+'/Sync-Exp/atlas_'+str(self.e)+'.png')
       
 #%%
 # Prepare data for pytorch
