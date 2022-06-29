@@ -15,6 +15,7 @@ import torch.nn.functional as F
 
 #Read image
 image_file = home+'/Sync-Exp/Talus_reso1/sub_T01_static_3DT1_flirt_crop_reso1.nii.gz'
+#image_file = home+'/Sync-Exp/Data/DHCP/sub-CC00060XX03_ses-12501_desc-restore_T2w.nii.gz'
 image = nib.load(image_file)
 data = image.get_fdata()
 
@@ -130,6 +131,10 @@ class SirenNet(pl.LightningModule):
     self.log('train_loss', loss)
     return loss
 
+  def predict_step(self, batch, batch_idx):
+    x,y = batch    
+    return self(x)
+
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
     return optimizer
@@ -140,18 +145,18 @@ dim_hidden = 512
 num_layers = 5
 w0 = 30
 net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
-num_epochs = 5
+num_epochs = 10
 trainer = pl.Trainer(gpus=1, max_epochs=num_epochs)
 trainer.fit(net, loader)
 
 model_file = home+'/Sync-Exp/model.ckpt'
 trainer.save_checkpoint(model_file) 
 
-#%% Load trained model and do the prediction
+#%% Load trained model (just to check that loading is working) and do the prediction using lightning trainer (for batchsize management)
 net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
-net.eval()
-with torch.no_grad():
-  yhat = net(X)
+
+test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size) #remove shuffling
+yhat = torch.concat(trainer.predict(net, test_loader))
 
 output = yhat.cpu().detach().numpy().reshape(data.shape)
 output_file = home+'/Sync-Exp/output.nii.gz'
