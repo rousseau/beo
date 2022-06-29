@@ -13,7 +13,7 @@ import pytorch_lightning as pl
 import torch.nn as nn
 import torch.nn.functional as F
 import argparse
-
+import os
 
 #%% Code from SIREN repo modified for lightning
 import math
@@ -124,6 +124,7 @@ if __name__ == '__main__':
   parser.add_argument('-w', '--w0', help='Value of w_0', type=float, required=False, default = 30)  
   parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
   parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1024)    
+  parser.add_argument('--workers', help='Number of workers (multiprocessing). By default: the number of CPU', type=int, required=False, default = -1)
 
   args = parser.parse_args()
 
@@ -135,6 +136,9 @@ if __name__ == '__main__':
   batch_size = args.batch_size
   image_file = args.input
   output_file = args.output
+  num_workers = args.workers
+  if num_workers == -1:
+    num_workers = os.cpu_count()
   
   #Read image
   image = nib.load(image_file)
@@ -158,7 +162,7 @@ if __name__ == '__main__':
   
   #Pytorch dataloader
   dataset = torch.utils.data.TensorDataset(X,Y)
-  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
   #Training
   net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
@@ -172,7 +176,7 @@ if __name__ == '__main__':
   #net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
 
   batch_size_test = batch_size * 2 
-  test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test) #remove shuffling
+  test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test, num_workers=num_workers) #remove shuffling
   yhat = torch.concat(trainer.predict(net, test_loader))
 
   output = yhat.cpu().detach().numpy().reshape(data.shape)
