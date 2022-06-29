@@ -12,34 +12,8 @@ import torch
 import pytorch_lightning as pl
 import torch.nn as nn
 import torch.nn.functional as F
+import argparse
 
-#Read image
-image_file = home+'/Sync-Exp/Talus_reso1/sub_T01_static_3DT1_flirt_crop_reso1.nii.gz'
-#image_file = home+'/Sync-Exp/Data/DHCP/sub-CC00060XX03_ses-12501_desc-restore_T2w.nii.gz'
-image = nib.load(image_file)
-data = image.get_fdata()
-
-#%%
-#Create grid
-dim = 3
-x = torch.linspace(-1, 1, steps=data.shape[0])
-y = torch.linspace(-1, 1, steps=data.shape[1])
-z = torch.linspace(-1, 1, steps=data.shape[2])
-
-mgrid = torch.stack(torch.meshgrid(x,y,z), dim=-1)
-
-#Convert to X=(x,y,z) and Y=intensity
-X = torch.Tensor(mgrid.reshape(-1,dim))
-Y = torch.Tensor(data.flatten())
-
-#Normalize intensities between [-1,1]
-Y = (Y - torch.min(Y)) / (torch.max(Y) - torch.min(Y)) * 2 - 1
-Y = torch.reshape(Y, (-1,1))
-
-#%% Pytorch dataloader
-batch_size = 100000
-dataset = torch.utils.data.TensorDataset(X,Y)
-loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 #%% Code from SIREN repo modified for lightning
 import math
@@ -140,25 +114,66 @@ class SirenNet(pl.LightningModule):
     return optimizer
   
 
-#%%
-dim_hidden = 512
-num_layers = 5
-w0 = 30
-net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
-num_epochs = 10
-trainer = pl.Trainer(gpus=1, max_epochs=num_epochs)
-trainer.fit(net, loader)
+if __name__ == '__main__':
+  parser = argparse.ArgumentParser(description='Beo SIREN')
+  parser.add_argument('-i', '--input', help='Input image (nifti)', type=str, required=True)
+  parser.add_argument('-o', '--output', help='Output image (nifti)', type=str, required=True)
+  parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) trained model', type=str, required=False)
+  parser.add_argument('-n', '--neurons', help='Number of hidden neurons', type=int, required=False, default = 512)
+  parser.add_argument('-l', '--layers', help='Number of layers', type=int, required=False, default = 5)  
+  parser.add_argument('-w', '--w0', help='Value of w_0', type=float, required=False, default = 30)  
+  parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1024)    
 
-model_file = home+'/Sync-Exp/model.ckpt'
-trainer.save_checkpoint(model_file) 
+  args = parser.parse_args()
 
-#%% Load trained model (just to check that loading is working) and do the prediction using lightning trainer (for batchsize management)
-net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
+  dim_hidden = args.neurons
+  num_layers = args.layers
+  w0 = args.w0
+  num_epochs = args.epochs
+  model_file = args.model
+  batch_size = args.batch_size
+  image_file = args.input
+  output_file = args.output
+  
+  #Read image
+  image = nib.load(image_file)
+  data = image.get_fdata()
 
-test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size) #remove shuffling
-yhat = torch.concat(trainer.predict(net, test_loader))
+  #Create grid
+  dim = 3
+  x = torch.linspace(-1, 1, steps=data.shape[0])
+  y = torch.linspace(-1, 1, steps=data.shape[1])
+  z = torch.linspace(-1, 1, steps=data.shape[2])
+  
+  mgrid = torch.stack(torch.meshgrid(x,y,z), dim=-1)
+  
+  #Convert to X=(x,y,z) and Y=intensity
+  X = torch.Tensor(mgrid.reshape(-1,dim))
+  Y = torch.Tensor(data.flatten())
+  
+  #Normalize intensities between [-1,1]
+  Y = (Y - torch.min(Y)) / (torch.max(Y) - torch.min(Y)) * 2 - 1
+  Y = torch.reshape(Y, (-1,1))
+  
+  #Pytorch dataloader
+  dataset = torch.utils.data.TensorDataset(X,Y)
+  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-output = yhat.cpu().detach().numpy().reshape(data.shape)
-output_file = home+'/Sync-Exp/output.nii.gz'
-nib.save(nib.Nifti1Image(output, image.affine), output_file)  
+  #Training
+  net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
+  trainer = pl.Trainer(gpus=1, max_epochs=num_epochs)
+  trainer.fit(net, loader)
 
+  if args.model is not None:
+    trainer.save_checkpoint(model_file) 
+    
+  #%% Load trained model (just to check that loading is working) and do the prediction using lightning trainer (for batchsize management)
+  #net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
+
+  batch_size_test = batch_size * 2 
+  test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test) #remove shuffling
+  yhat = torch.concat(trainer.predict(net, test_loader))
+
+  output = yhat.cpu().detach().numpy().reshape(data.shape)
+  nib.save(nib.Nifti1Image(output, image.affine), output_file)     
