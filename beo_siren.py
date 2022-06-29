@@ -162,7 +162,7 @@ if __name__ == '__main__':
   
   #Pytorch dataloader
   dataset = torch.utils.data.TensorDataset(X,Y)
-  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+  loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
   #Training
   net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
   #net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
 
   batch_size_test = batch_size * 2 
-  test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test, num_workers=num_workers) #remove shuffling
+  test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test, num_workers=num_workers, pin_memory=True) #remove shuffling
   yhat = torch.concat(trainer.predict(net, test_loader))
 
   output = yhat.cpu().detach().numpy().reshape(data.shape)
