@@ -166,7 +166,7 @@ if __name__ == '__main__':
 
   #Training
   net = SirenNet(dim_in=3, dim_hidden=dim_hidden, dim_out=1, num_layers=num_layers, w0 = w0)
-  trainer = pl.Trainer(gpus=1, max_epochs=num_epochs)
+  trainer = pl.Trainer(gpus=1, max_epochs=num_epochs, precision=16)
   trainer.fit(net, loader)
 
   if args.model is not None:
