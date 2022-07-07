@@ -120,13 +120,11 @@ class ResMFN(pl.LightningModule):
 
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser(description='Beo SIREN')
+  parser = argparse.ArgumentParser(description='Beo BACON')
   parser.add_argument('-i', '--input', help='Input image (nifti)', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output image (nifti)', type=str, required=True)
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) trained model', type=str, required=False)
   parser.add_argument('-n', '--neurons', help='Number of hidden neurons', type=int, required=False, default = 512)
-  parser.add_argument('-l', '--layers', help='Number of layers', type=int, required=False, default = 5)  
-  parser.add_argument('-w', '--w0', help='Value of w_0', type=float, required=False, default = 30)  
   parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
   parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1024)    
   parser.add_argument('--workers', help='Number of workers (multiprocessing). By default: the number of CPU', type=int, required=False, default = -1)
@@ -134,12 +132,12 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
 
-  dim_hidden = args.neurons
-  num_epochs = args.epochs
-  model_file = args.model
-  batch_size = args.batch_size
   image_file = args.input
   output_file = args.output
+  model_file = args.model
+  dim_hidden = args.neurons
+  num_epochs = args.epochs
+  batch_size = args.batch_size
   num_workers = args.workers
   accelerator = args.accelerator
 
