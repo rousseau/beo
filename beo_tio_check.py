@@ -6,8 +6,6 @@ Created on Thu May 27 17:05:23 2021
 @author: rousseau
 """
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 from os.path import expanduser
 home = expanduser("~")
