@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
   #Dilate mask if needed
   if args.radius > 0:
-    mask = sitk.BinaryDilate(mask, args.radius)
+    mask = sitk.BinaryDilate(mask, [args.radius]*mask.GetDimension())
 
   #Define ROI from mask values
   nda = sitk.GetArrayFromImage(mask)
