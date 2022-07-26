@@ -37,6 +37,27 @@ class TwoDataSet(Dataset):
     
     return _source, _target   
 
+class velocity_model(nn.Module):
+  def __init__(self, in_channels = 1, scale_factor=1, n_features=32):
+    super(velocity_model, self).__init__()
+
+    self.ap = nn.AvgPool3d(scale_factor)
+    self.up = nn.Upsample(scale_factor=scale_factor, mode='nearest', align_corners=True)
+
+    self.cbr_1 = conv_bn_relu(2*in_channels, self.n_features, 3, act='relu')
+    self.cbr_2 = conv_bn_relu(self.n_features, self.n_features, 3, act='relu')
+    self.cbr_3 = conv_bn_relu(self.n_features, self.n_features, 3, act='relu')
+    self.cbr_4 = conv_bn_relu(self.n_features, 3, 3, act=None)
+
+  def forward(self,x):
+    x = self.ap(x)
+    x = self.cbr_1(x)
+    x = self.cbr_2(x)
+    x = self.cbr_3(x)
+    x = self.cbr_4(x)
+    x = self.up(x)
+    return x  
+
 class registration_model(pl.LightningModule):
   def __init__(self, shape, in_channels = 1, int_steps = 7):  
     super().__init__()  
@@ -45,16 +66,20 @@ class registration_model(pl.LightningModule):
     self.int_steps = int_steps
     self.vecint = VecInt(inshape=shape, nsteps=int_steps)    
     self.similarity = MSE() #NCC() #MSE()
-    #self.unet_s0 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
-    #self.unet_s1 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
-    self.smoothing = GaussianSmoothing(channels=3, kernel_size=5,sigma=0.5, dim=3)
-
-
     self.lambda_similarity = 1
     self.lambda_grad_flow  = 0.1
     self.bidir = True
 
-    scale_factor = 8
+    scale_1 = velocity_model(scale_factor=1)
+    scale_2 = velocity_model(scale_factor=2)
+    scale_4 = velocity_model(scale_factor=4)
+    scale_8 = velocity_model(scale_factor=8)
+
+    #self.unet_s0 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
+    #self.unet_s1 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
+    self.smoothing = GaussianSmoothing(channels=3, kernel_size=5,sigma=0.5, dim=3)
+
+    scale_factor = 4
     self.ap = nn.AvgPool3d(scale_factor)
     self.up = nn.Upsample(scale_factor=scale_factor, mode='trilinear', align_corners=True)
 
@@ -85,7 +110,19 @@ class registration_model(pl.LightningModule):
 
     x_0 = torch.cat([source,target],dim=1)
 
+    #fv_s1 = self.scale_1(x_0)
+    #fv_s2 = self.scale_2(x_0)
+    #fv_s4 = self.scale_4(x_0)
+    fv_s8 = self.scale_8(x_0)
 
+    forward_flow_s8 = self.vecint(fv_s8)
+    backward_flow_s8 = self.vecint(-fv_s8)
+
+    y_source.append(self.transformer(source, forward_flow_s8))
+    y_target.append(self.transformer(target, backward_flow_s8))
+    forward_flow.append(forward_flow_s8)
+
+    '''
     #feature extraction at scale 0
     f_0 = self.feature_1(x_0)
     f_0 = self.feature_2(f_0)
@@ -124,9 +161,10 @@ class registration_model(pl.LightningModule):
     backward_flow_s0 = self.vecint(-forward_velocity_s0)
     y_target_s0 = self.transformer(target, backward_flow_s0)
 
-    #y_source.append(y_source_s0)
-    #y_target.append(y_target_s0)
-    #forward_flow.append(forward_flow_s0)
+    y_source.append(y_source_s0)
+    y_target.append(y_target_s0)
+    forward_flow.append(forward_flow_s0)
+    '''
 
     return y_source, y_target, forward_velocity, forward_flow
 
