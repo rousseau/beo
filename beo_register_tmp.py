@@ -54,8 +54,9 @@ class registration_model(pl.LightningModule):
     self.lambda_grad_flow  = 0.1
     self.bidir = True
 
-    self.ap = nn.AvgPool3d(8)
-    self.up = nn.Upsample(scale_factor=8, mode='trilinear', align_corners=True)
+    scale_factor = 8
+    self.ap = nn.AvgPool3d(scale_factor)
+    self.up = nn.Upsample(scale_factor=scale_factor, mode='trilinear', align_corners=True)
 
     self.n_features = 32
     self.feature_1 = conv_bn_relu(2*in_channels, self.n_features, 3, act='relu')
@@ -127,52 +128,8 @@ class registration_model(pl.LightningModule):
     #y_target.append(y_target_s0)
     #forward_flow.append(forward_flow_s0)
 
-
-
     return y_source, y_target, forward_velocity, forward_flow
 
-  def forward_tmp(self,source,target):
-    #scale 0 : original size
-    #scale 1 : downsampling by 2, etc.
-    y_source = []
-    y_target = []
-
-    forward_flow = []
-    forward_velocity = []
-
-    #scale 1
-    source_s1 = self.ap(source)
-    target_s1 = self.ap(target)
-
-    x_s1 = torch.cat([source_s1,target_s1],dim=1)
-    forward_velocity_s1 = self.up(self.unet_s1(x_s1))
-    forward_flow_s1 = self.vecint(forward_velocity_s1)
-    y_source_s1 = self.transformer(source, forward_flow_s1)
-
-    backward_flow_s1 = self.vecint(-forward_velocity_s1)
-    y_target_s1 = self.transformer(target, backward_flow_s1)
-
-    y_source.append(y_source_s1)
-    y_target.append(y_target_s1)
-    forward_flow.append(forward_flow_s1)
-
-    #scale 0
-    x_s0 = torch.cat([source,target],dim=1)
-    forward_velocity_s0 = self.unet_s0(x_s0) + forward_velocity_s1
-    forward_flow_s0 = self.vecint(forward_velocity_s0)
-    y_source_s0 = self.transformer(source, forward_flow_s0)
-
-    backward_flow_s0 = self.vecint(-forward_velocity_s0)
-    y_target_s0 = self.transformer(target, backward_flow_s0)
-
-    y_source.append(y_source_s0)
-    y_target.append(y_target_s0)
-    forward_flow.append(forward_flow_s0)
-
-    #x = torch.cat([source,target],dim=1)
-    #forward_flow = self.unet(x)
-    #y_source = self.transformer(source, forward_flow)
-    return y_source, y_target, forward_velocity, forward_flow
 
   def configure_optimizers(self):
     optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
@@ -185,9 +142,9 @@ class registration_model(pl.LightningModule):
     loss = 0 
     for i in range(len(y_source)):
       if self.bidir is True:
-        loss = self.lambda_similarity * (self.similarity.forward(target,y_source[i]) + self.similarity.forward(y_target[i],source))/2
+        loss += self.lambda_similarity * (self.similarity.forward(target,y_source[i]) + self.similarity.forward(y_target[i],source))/2
       else:
-        loss = self.lambda_similarity * self.similarity.forward(target,y_source[i])
+        loss += self.lambda_similarity * self.similarity.forward(target,y_source[i])
 
       if self.lambda_grad_flow > 0:
         loss += self.lambda_grad_flow * Grad3d().forward(forward_flow[i]) 
@@ -213,7 +170,14 @@ if __name__ == '__main__':
   target_data  = torch.Tensor(target_image.get_fdata())
   source_data  = torch.Tensor(source_image.get_fdata())
 
+  target_data /= torch.max(target_data)
+  source_data /= torch.max(source_data)
+
+  print('target : '+str(torch.min(target_data))+' '+str(torch.max(target_data)))
+  print('source : '+str(torch.min(source_data))+' '+str(torch.max(source_data)))
+
   print(target_data.shape)
+  print(source_data.shape)
 
   if len(target_data.shape) == 3:
     target_data = torch.unsqueeze(torch.unsqueeze(target_data, 0),0)
@@ -234,7 +198,7 @@ if __name__ == '__main__':
   in_shape = (x_train.shape[2],x_train.shape[3],x_train.shape[4])
   reg_net = registration_model(shape=in_shape, in_channels=x_train.shape[1])
 
-  trainer_reg = pl.Trainer(gpus=1, max_epochs=args.epochs, logger=False, precision=16)
+  trainer_reg = pl.Trainer(gpus=1, max_epochs=args.epochs, logger=False, precision=16, enable_checkpointing=False)
   trainer_reg.fit(reg_net, trainloader_reg)  
 
   y_source, y_target, forward_velocity, forward_flow  = reg_net.forward(source_data,target_data)
