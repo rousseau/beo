@@ -35,7 +35,7 @@ resolution = '1'
 # resolution 2, patch_size 48, samples 16, batch_size 32
 # resolution 1, patch_size 96, samples 16, batch_size 4
 
-compute_sdf = True
+compute_sdf = False
 
 
 def sdf(x):
