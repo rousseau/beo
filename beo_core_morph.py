@@ -79,38 +79,6 @@ class GaussianSmoothing(nn.Module):
         """
         return self.conv(input, weight=self.weight, groups=self.groups, padding=self.padding)
 
-class conv_bn_relu(nn.Module):
-  def __init__(self, in_channels, out_channels, kernel_size, stride=1, do_padding=True, bn=False, transpose=False, group=1, act='relu'):
-    super(conv_bn_relu, self).__init__()
-
-    if do_padding:
-      padding = int((kernel_size - 1)/2)
-    else:
-      padding = 0  
-    if not transpose:
-      self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride, padding=padding, groups=group)
-    else:
-      self.conv = nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride, padding=padding, groups=group)
-
-    if bn:
-      self.bn = nn.BatchNorm3d(out_channels)  
-    else:
-      self.bn = None
-
-    if act == 'relu':
-      self.act = nn.ReLU(inplace=True)
-    else:
-      self.act = None
-
-  def forward(self,x):
-    x = self.conv(x)
-    if self.bn is not None:
-      x = self.bn(x)    
-    if self.act is not None:
-      x = self.act(x)
-    return x  
-
-
 class Unet(nn.Module):
   def __init__(self, n_channels = 2, n_classes = 3, n_features = 8):
     super(Unet, self).__init__()
