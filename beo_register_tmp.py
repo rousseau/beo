@@ -41,13 +41,15 @@ class velocity_model(nn.Module):
   def __init__(self, in_channels = 1, scale_factor=1, n_features=32):
     super(velocity_model, self).__init__()
 
+    self.n_features = n_features
     self.ap = nn.AvgPool3d(scale_factor)
-    self.up = nn.Upsample(scale_factor=scale_factor, mode='nearest', align_corners=True)
+    self.up = nn.Upsample(scale_factor=scale_factor, mode='trilinear', align_corners=True)
 
     self.cbr_1 = conv_bn_relu(2*in_channels, self.n_features, 3, act='relu')
     self.cbr_2 = conv_bn_relu(self.n_features, self.n_features, 3, act='relu')
     self.cbr_3 = conv_bn_relu(self.n_features, self.n_features, 3, act='relu')
-    self.cbr_4 = conv_bn_relu(self.n_features, 3, 3, act=None)
+    self.cbr_4 = conv_bn_relu(self.n_features, self.n_features, 3, act='relu')
+    self.cbr_5 = conv_bn_relu(self.n_features, 3, 3, act=None)
 
   def forward(self,x):
     x = self.ap(x)
@@ -55,28 +57,38 @@ class velocity_model(nn.Module):
     x = self.cbr_2(x)
     x = self.cbr_3(x)
     x = self.cbr_4(x)
+    x = self.cbr_5(x)
     x = self.up(x)
     return x  
 
 class registration_model(pl.LightningModule):
-  def __init__(self, shape, in_channels = 1, int_steps = 7):  
+  def __init__(self, shape, in_channels = 1, int_steps = 7, n_epoch_scale = 100):  
     super().__init__()  
     self.shape = shape
     self.transformer = SpatialTransformer(size=shape)
     self.int_steps = int_steps
     self.vecint = VecInt(inshape=shape, nsteps=int_steps)    
     self.similarity = MSE() #NCC() #MSE()
-    self.lambda_similarity = 1
-    self.lambda_grad_flow  = 0.1
+    self.lambda_similarity = 1 
+    self.lambda_grad_flow  = 0.01 #0.01 if MSE or 0.1 if NCC (from original voxelmorph article)
     self.bidir = True
 
-    scale_1 = velocity_model(scale_factor=1)
-    scale_2 = velocity_model(scale_factor=2)
-    scale_4 = velocity_model(scale_factor=4)
-    scale_8 = velocity_model(scale_factor=8)
+    self.n_epochs = 0 
+ 
+    self.scale_1 = velocity_model(scale_factor=1)
+    self.scale_2 = velocity_model(scale_factor=2)
+    self.scale_4 = velocity_model(scale_factor=4)
+    self.scale_8 = velocity_model(scale_factor=8)
+
+    self.epochs_scale8 = n_epoch_scale
+    self.epochs_scale4 = n_epoch_scale*2 + self.epochs_scale8
+    self.epochs_scale2 = n_epoch_scale*4 + self.epochs_scale4
+    self.epochs_scale1 = n_epoch_scale*8 + self.epochs_scale2
+
 
     #self.unet_s0 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
     #self.unet_s1 = Unet(n_channels = 2, n_classes = 3, n_features = 16)
+    '''
     self.smoothing = GaussianSmoothing(channels=3, kernel_size=5,sigma=0.5, dim=3)
 
     scale_factor = 4
@@ -97,11 +109,39 @@ class registration_model(pl.LightningModule):
     self.decode_4 = conv_bn_relu(self.n_features*2, self.n_features, 1, act='relu')
     self.decode_5 = conv_bn_relu(self.n_features, self.n_features, 3, act=None)
     self.decode_6 = conv_bn_relu(self.n_features, 3, 3, act=None)
+    '''
 
+  def on_train_epoch_end(self):
+    self.n_epochs += 1
 
   def forward(self,source,target):
-    #scale 0 : original size
-    #scale 1 : downsampling by 2, etc.
+    y_source = []
+    y_target = []
+
+    forward_flow = []
+    forward_velocity = []
+ 
+    x_0 = torch.cat([source,target],dim=1)
+
+    if self.n_epochs > self.epochs_scale2:
+      forward_velocity_s = self.scale_1(x_0) + self.scale_2(x_0).detach() + self.scale_4(x_0).detach() + self.scale_8(x_0).detach()
+    elif self.n_epochs > self.epochs_scale4:
+      forward_velocity_s = self.scale_2(x_0) + self.scale_4(x_0).detach() + self.scale_8(x_0).detach()
+    elif self.n_epochs > self.epochs_scale8:
+      forward_velocity_s = self.scale_4(x_0) + self.scale_8(x_0).detach()
+    else:
+      forward_velocity_s = self.scale_8(x_0)
+
+    forward_flow_s = self.vecint(forward_velocity_s)
+    y_source.append(self.transformer(source, forward_flow_s))
+    forward_flow.append(forward_flow_s)
+    if self.bidir is True:
+      backward_flow_s = self.vecint(-forward_velocity_s)
+      y_target.append(self.transformer(target, backward_flow_s))
+
+    return y_source, y_target, forward_velocity, forward_flow
+
+  def forward_allscales(self,source,target):
     y_source = []
     y_target = []
 
@@ -110,17 +150,34 @@ class registration_model(pl.LightningModule):
 
     x_0 = torch.cat([source,target],dim=1)
 
-    #fv_s1 = self.scale_1(x_0)
-    #fv_s2 = self.scale_2(x_0)
-    #fv_s4 = self.scale_4(x_0)
     fv_s8 = self.scale_8(x_0)
-
+    fv_s4 = self.scale_4(x_0) + fv_s8
+    fv_s2 = self.scale_2(x_0) + fv_s4
+    fv_s1 = self.scale_1(x_0) + fv_s2
+    
     forward_flow_s8 = self.vecint(fv_s8)
     backward_flow_s8 = self.vecint(-fv_s8)
-
     y_source.append(self.transformer(source, forward_flow_s8))
     y_target.append(self.transformer(target, backward_flow_s8))
     forward_flow.append(forward_flow_s8)
+
+    forward_flow_s4 = self.vecint(fv_s4)
+    backward_flow_s4 = self.vecint(-fv_s4)
+    y_source.append(self.transformer(source, forward_flow_s4))
+    y_target.append(self.transformer(target, backward_flow_s4))
+    forward_flow.append(forward_flow_s4)
+
+    forward_flow_s2 = self.vecint(fv_s2)
+    backward_flow_s2 = self.vecint(-fv_s2)
+    y_source.append(self.transformer(source, forward_flow_s2))
+    y_target.append(self.transformer(target, backward_flow_s2))
+    forward_flow.append(forward_flow_s2)
+
+    forward_flow_s1 = self.vecint(fv_s1)
+    backward_flow_s1 = self.vecint(-fv_s1)
+    y_source.append(self.transformer(source, forward_flow_s1))
+    y_target.append(self.transformer(target, backward_flow_s1))
+    forward_flow.append(forward_flow_s1)
 
     '''
     #feature extraction at scale 0
@@ -178,11 +235,12 @@ class registration_model(pl.LightningModule):
     y_source, y_target, forward_velocity, forward_flow  = self(source,target)
 
     loss = 0 
+    scale_loss = 1.0 / len(y_source) 
     for i in range(len(y_source)):
       if self.bidir is True:
-        loss += self.lambda_similarity * (self.similarity.forward(target,y_source[i]) + self.similarity.forward(y_target[i],source))/2
+        loss += scale_loss * self.lambda_similarity * (self.similarity.forward(target,y_source[i]) + self.similarity.forward(y_target[i],source))/2
       else:
-        loss += self.lambda_similarity * self.similarity.forward(target,y_source[i])
+        loss += scale_loss * self.lambda_similarity * self.similarity.forward(target,y_source[i])
 
       if self.lambda_grad_flow > 0:
         loss += self.lambda_grad_flow * Grad3d().forward(forward_flow[i]) 
@@ -234,12 +292,15 @@ if __name__ == '__main__':
   trainloader_reg = torch.utils.data.DataLoader(trainset_reg, batch_size=batch_size_reg)   
   
   in_shape = (x_train.shape[2],x_train.shape[3],x_train.shape[4])
-  reg_net = registration_model(shape=in_shape, in_channels=x_train.shape[1])
+  reg_net = registration_model(shape=in_shape, in_channels=x_train.shape[1], n_epoch_scale=args.epochs)
 
-  trainer_reg = pl.Trainer(gpus=1, max_epochs=args.epochs, logger=False, precision=16, enable_checkpointing=False)
+  max_epochs = reg_net.epochs_scale1
+  print('max_epochs:'+str(max_epochs))
+
+  trainer_reg = pl.Trainer(gpus=1, max_epochs=max_epochs, logger=False, precision=16, enable_checkpointing=False)
   trainer_reg.fit(reg_net, trainloader_reg)  
 
-  y_source, y_target, forward_velocity, forward_flow  = reg_net.forward(source_data,target_data)
+  y_source, y_target, forward_velocity, forward_flow  = reg_net.forward_allscales(source_data,target_data)
 
   for i in range(len(y_source)):
     y_source_output = y_source[i]
