@@ -26,16 +26,19 @@ data_path = home+'/Sync-Exp/Data/DHCP/'
 max_subjects = 500
 num_workers = 8
 print('num_workers : '+str(num_workers))
-patch_size = 96
+
 max_queue_length = 1024
 samples_per_volume = 16
-batch_size = 4
-resolution = '1'
+resolution = 1
 
-# resolution 2, patch_size 48, samples 16, batch_size 32
-# resolution 1, patch_size 96, samples 16, batch_size 4
+if resolution == 1:
+  patch_size = 96
+  batch_size = 4
+if resolution == 2:
+  patch_size = 48
+  batch_size = 32
 
-compute_sdf = False
+compute_sdf = True
 
 
 def sdf(x):
@@ -59,8 +62,9 @@ if compute_sdf is True:
     hull = np.where(seg_data>0,1,0).astype(np.intc)
     hull = binary_fill_holes(hull).astype(np.intc)
     hull = binary_fill_holes(hull).astype(np.intc)
-
-    brain = (np.where(seg_data>0,1,0) - np.where(seg_data==1,1,0) - np.where(seg_data==4,1,0) - np.where(seg_data==6,1,0)).astype(np.intc)
+    
+    #remove everything outside (also label 2 which is cortical gray matter)
+    brain = (np.where(seg_data>0,1,0) - np.where(seg_data==1,1,0) - np.where(seg_data==4,1,0) - np.where(seg_data==6,1,0) - np.where(seg_data==2,1,0)).astype(np.intc)
     brain = binary_fill_holes(brain).astype(np.intc)
     brain = binary_fill_holes(brain).astype(np.intc)
 
@@ -71,7 +75,7 @@ if compute_sdf is True:
     nibabel.save( nibabel.Nifti1Image(sdf(brain), seg.affine), fileout_brain)
 
     #Resample to speed up experiments
-    res = resolution+'x'+resolution+'x'+resolution
+    res = str(resolution)+'x'+str(resolution)+'x'+str(resolution)
     go = 'ResampleImage 3 '+fileout_hull+' '+fileout_hull+' '+res+' 0 0 '
     os.system(go)
     go = 'ResampleImage 3 '+fileout_brain+' '+fileout_brain+' '+res+' 0 0 '
@@ -239,7 +243,11 @@ class Net(pl.LightningModule):
     hull = patches_batch['hull'][tio.DATA]
     brain = patches_batch['brain'][tio.DATA]
  
-    return F.mse_loss(brain,self(hull))
+    #Select area to compute the loss
+    pred = torch.where(torch.abs(brain) < 0.25 , self(hull), 0.)
+    brain = torch.where(torch.abs(brain) < 0.25 , brain, 0.)
+
+    return F.mse_loss(brain,pred)
 
   def training_step(self, batch, batch_idx):
     loss = self.evaluate_batch(batch)
