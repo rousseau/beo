@@ -3,6 +3,7 @@
 import argparse
 import numpy as np
 import nibabel
+from scipy.ndimage import map_coordinates
 
 # Objective: simulation LR image using a given PSF
 # Inputs: a reference (HR) image and a LR image (created using ITK-based resampling)
@@ -27,13 +28,6 @@ if __name__ == '__main__':
   HRSpacing = np.float32(np.array(HRimage.header['pixdim'][1:4]))  
   LRSpacing = np.float32(np.array(LRimage.header['pixdim'][1:4]))  
 
-  #use a identity transform for now
-  inputTransform = None
-  #no transform provided : use identity as transform and zero as center
-  m = np.identity(4)
-  c = np.array([0, 0, 0, 1])
-  inputTransform = (m,c) 
-
   #Pre-compute PSF values
   #PSF is a box centered around an observed pixel of LR image
   #The size of the box is set as the size of a LR pixel (expressed in voxel space)
@@ -54,5 +48,39 @@ if __name__ == '__main__':
   psf = gaussian(psf_x,sigma) * gaussian(psf_y, sigma) * gaussian(psf_z,sigma) 
   psf = psf / np.sum(psf)
 
-  nibabel.save(nibabel.Nifti1Image(psf, HRimage.affine),'toto.nii.gz')    
+  #Get data
+  HRdata = HRimage.get_fdata()
+  LRdata = LRimage.get_fdata()
+  outputdata = np.zeros(LRdata.shape)
+
+  #Define transforms
+  #This is where we could add slice-by-slice transform
+  LR_to_world = LRimage.affine
+  world_to_HR = np.linalg.inv(HRimage.affine)
+  LR_to_HR = world_to_HR @ LR_to_world
+
+  #PSF coordinates in LR image
+  psf_coordinates_in_LR = np.ones((4,psf.size))
+
+  #Loop over LR pixels (i,j,k)
+  for i in range(LRdata.shape[0]):
+    for j in range(LRdata.shape[1]):
+      for k in range(LRdata.shape[2]):
+
+        #coordinates of PSF box around current pixel
+        psf_coordinates_in_LR[0,:] = psf_x.flatten() + i
+        psf_coordinates_in_LR[1,:] = psf_y.flatten() + j
+        psf_coordinates_in_LR[2,:] = psf_z.flatten() + k
+
+        #Transform PSF grid to HR space
+        psf_coordinates_in_HR = LR_to_HR @ psf_coordinates_in_LR
+
+        #Get interpolated values at psf points in HR
+        interp_values = map_coordinates(HRdata,psf_coordinates_in_HR[0:3,:],order=0,mode='constant',cval=np.nan,prefilter=False)
+        
+        #Compute new weigthed value of LR pixel
+        outputdata[i,j,k] = np.sum(psf.flatten()*interp_values)
+
+  
+  nibabel.save(nibabel.Nifti1Image(outputdata, LRimage.affine),args.output)    
 
