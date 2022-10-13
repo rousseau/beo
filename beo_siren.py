@@ -8,6 +8,7 @@ Created on Wed Jun 29 10:30:59 2022
 from os.path import expanduser
 home = expanduser("~")
 import nibabel as nib
+import numpy as np
 import torch
 import pytorch_lightning as pl
 import torch.nn as nn
@@ -179,5 +180,5 @@ if __name__ == '__main__':
   test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size_test, num_workers=num_workers, pin_memory=True) #remove shuffling
   yhat = torch.concat(trainer.predict(net, test_loader))
 
-  output = yhat.cpu().detach().numpy().reshape(data.shape)
+  output = np.float32(yhat.cpu().detach().numpy().reshape(data.shape))
   nib.save(nib.Nifti1Image(output, image.affine), output_file)     
