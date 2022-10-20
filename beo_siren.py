@@ -107,7 +107,7 @@ class SirenNet(pl.LightningModule):
     return loss
 
   def predict_step(self, batch, batch_idx):
-    x,y = batch    
+    x = batch    
     return self(x)
 
   def configure_optimizers(self):
