@@ -72,9 +72,84 @@ if __name__ == '__main__':
   #SIREN stuff
   model_file = args.model
   net = SirenNet().load_from_checkpoint(model_file, dim_in=3, dim_hidden=512, dim_out=1, num_layers=5, w0 = 30)
+  #trainer = pl.Trainer(accelerator='gpu', devices=1, max_epochs=1, precision=16)
   trainer = pl.Trainer(gpus=1, max_epochs=1, precision=16)
   psf_coordinates_in_HR_siren = np.ones((3,psf.size))
 
+
+  '''
+  #flatten data
+  all_psf_coordinates_in_HR_siren = np.zeros((LRdata.size,psf.size,3))
+  
+  k = 0
+  #Loop over LR pixels (i,j,k)
+  for i in range(LRdata.shape[0]):
+    for j in range(LRdata.shape[1]):
+      for k in range(LRdata.shape[2]):
+
+        #coordinates of PSF box around current pixel
+        psf_coordinates_in_LR[0,:] = psf_x.flatten() + i
+        psf_coordinates_in_LR[1,:] = psf_y.flatten() + j
+        psf_coordinates_in_LR[2,:] = psf_z.flatten() + k
+
+        #Transform PSF grid to HR space
+        psf_coordinates_in_HR = LR_to_HR @ psf_coordinates_in_LR
+
+        #coordinate normalization into [-1,1] to be compatible with SIREN
+        psf_coordinates_in_HR_siren[0,:] = (psf_coordinates_in_HR[0,:] / HRdata.shape[0] -0.5)*2 
+        psf_coordinates_in_HR_siren[1,:] = (psf_coordinates_in_HR[1,:] / HRdata.shape[1] -0.5)*2 
+        psf_coordinates_in_HR_siren[2,:] = (psf_coordinates_in_HR[2,:] / HRdata.shape[2] -0.5)*2 
+        
+        all_psf_coordinates_in_HR_siren[k,:,:] = psf_coordinates_in_HR_siren[0:3,:].T
+        k = k+1
+  '''
+
+  all_psf_coordinates_in_HR_siren = np.zeros((LRdata.size,1,3))
+  
+  k = 0
+  #Loop over LR pixels (i,j,k)
+  for i in range(LRdata.shape[0]):
+    for j in range(LRdata.shape[1]):
+      for k in range(LRdata.shape[2]):
+
+        x = LR_to_HR @ np.array([i,j,k,1]).T
+
+        x[0] = (x[0] / HRdata.shape[0] -0.5)*2 
+        x[1] = (x[1] / HRdata.shape[1] -0.5)*2 
+        x[2] = (x[2] / HRdata.shape[2] -0.5)*2 
+
+        all_psf_coordinates_in_HR_siren[k,0,:] = x[0:3].T
+        k = k+1
+
+
+  all_psf_coordinates_in_HR_siren = np.reshape(all_psf_coordinates_in_HR_siren,(-1,3))
+  print(all_psf_coordinates_in_HR_siren.shape)
+  #Prediction for all points
+  batch_size = 2000000
+  x = torch.Tensor(all_psf_coordinates_in_HR_siren)    
+  x = torch.utils.data.DataLoader(x, batch_size=batch_size)
+  pred = torch.concat(trainer.predict(net, x)).cpu().detach().numpy()    
+
+  nibabel.save(nibabel.Nifti1Image(np.float32(np.reshape(pred,LRdata.shape)), LRimage.affine),args.output)    
+
+  outputdata = np.float32(np.reshape(pred,(-1,psf.size)))
+
+  print(outputdata.shape)
+  print(psf.flatten().shape)
+
+  nibabel.save(nibabel.Nifti1Image(np.moveaxis(outputdata,1,0).reshape(LRdata.shape[0],LRdata.shape[1],LRdata.shape[2],psf.size), LRimage.affine),'toto.nii.gz')    
+
+  outputdata = np.matmul(outputdata,psf.flatten().reshape(-1,1))
+
+  print(outputdata.shape)
+
+  outputdata = np.reshape(outputdata,LRdata.shape)
+
+  nibabel.save(nibabel.Nifti1Image(outputdata, LRimage.affine),args.output)    
+
+
+  
+"""
   #Loop over LR pixels (i,j,k)
   for i in range(LRdata.shape[0]):
     for j in range(LRdata.shape[1]):
@@ -101,6 +176,4 @@ if __name__ == '__main__':
         #Compute new weigthed value of LR pixel
         outputdata[i,j,k] = np.sum(psf.flatten()*interp_values)
 
-  
-  nibabel.save(nibabel.Nifti1Image(outputdata, LRimage.affine),args.output)    
-
+"""
