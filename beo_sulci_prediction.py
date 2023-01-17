@@ -20,8 +20,12 @@ from pytorch_lightning.loggers import TensorBoardLogger
 import torchio as tio
 import glob
 
+import pandas as pd
+
+
 subjects = []
 data_path = home+'/Sync-Exp/Data/DHCP/'
+csv_file = pd.read_csv(data_path+'combined.tsv',sep="\t",on_bad_lines='skip')
   
 max_subjects = 500
 num_workers = 8
@@ -38,7 +42,7 @@ if resolution == 2:
   patch_size = 48
   batch_size = 32
 
-compute_sdf = True
+compute_sdf = False
 
 
 def sdf(x):
@@ -87,6 +91,35 @@ all_brain_sdf = glob.glob(data_path+'**/*brain_sdf.nii.gz', recursive=True)
 
 all_hull_sdf = all_hull_sdf[:max_subjects]
 
+#Select interesting subjects using csv
+csv_subjects = []
+n_csv = len(csv_file[csv_file.keys()[0]])
+age_min = 0
+age_max = 35
+for i in range(n_csv):
+  scan_age = csv_file['scan_age'][i]
+  if scan_age > age_min and scan_age < age_max:
+    id_subject = 'sub-'+str(csv_file['participant_id'][i])+'_ses-'+str(csv_file['session_id'][i])
+    csv_subjects.append(id_subject)
+
+print(csv_subjects)
+print(len(csv_subjects))
+
+for s in csv_subjects:
+
+  hull_file = data_path+s+'_hull_sdf.nii.gz'
+  brain_file= data_path+s+'_brain_sdf.nii.gz'
+
+  if hull_file in all_hull_sdf:
+    subject = tio.Subject(
+        hull=tio.ScalarImage(hull_file),
+        brain=tio.ScalarImage(brain_file),
+      )
+  
+    subjects.append(subject) 
+
+
+""" 
 for hull_file in all_hull_sdf:
   id_subject = hull_file.split('/')[6].split('_')[0:2]
   id_subject = id_subject[0]+'_'+id_subject[1]
@@ -99,7 +132,7 @@ for hull_file in all_hull_sdf:
     )
   
   subjects.append(subject) 
-
+ """
 print('DHCP Dataset size:', len(subjects), 'subjects')
 
 
@@ -286,13 +319,13 @@ if __name__ == '__main__':
 
   patch_overlap = int(patch_size / 2)  
 
-  if num_epochs > 0:
-    if args.model is not None:
-      print('Loading model.')
-      net = Net.load_from_checkpoint(args.model)
-    else:  
-      net = Net(in_channels = 1, out_channels = 1, n_filters = 32)
+  if args.model is not None:
+    print('Loading model.')
+    net = Net.load_from_checkpoint(args.model)
+  else:  
+    net = Net(in_channels = 1, out_channels = 1, n_filters = 32)
 
+  if num_epochs > 0:
     checkpoint_callback = ModelCheckpoint(
       dirpath=output_path,
       filename=prefix+'_{epoch:02d}', 
