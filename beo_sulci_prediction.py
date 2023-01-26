@@ -316,6 +316,7 @@ if __name__ == '__main__':
   prefix = 'sulci_prediction'
   prefix+= '_e'+str(num_epochs)
   prefix+= '_r'+str(resolution)
+  prefix+= '_a'+str(age_max)
 
   patch_overlap = int(patch_size / 2)  
 
