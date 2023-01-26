@@ -147,6 +147,8 @@ if __name__ == '__main__':
   parser.add_argument('-a', '--age_max', help='Maximum age', type=int, required=False, default = 40)
   #parser.add_argument('-o', '--output', help='Output image', type=str, required=False)
 
+  args = parser.parse_args()
+
   subjects = []
   data_path = home+'/Sync-Exp/Data/DHCP/'
   csv_file = pd.read_csv(data_path+'combined.tsv',sep="\t",on_bad_lines='skip')
@@ -210,7 +212,7 @@ if __name__ == '__main__':
   csv_subjects = []
   n_csv = len(csv_file[csv_file.keys()[0]])
   age_min = 0
-  age_max = 35
+  age_max = args.age_max
   for i in range(n_csv):
     scan_age = csv_file['scan_age'][i]
     if scan_age > age_min and scan_age < age_max:
@@ -312,8 +314,6 @@ if __name__ == '__main__':
 
   validation_loader_patches = torch.utils.data.DataLoader(
     patches_validation_set, batch_size=batch_size)
-
-  args = parser.parse_args()
   
   num_epochs = args.epochs
   output_path = home+'/Sync-Exp/Experiments/'
