@@ -23,26 +23,6 @@ import glob
 import pandas as pd
 
 
-subjects = []
-data_path = home+'/Sync-Exp/Data/DHCP/'
-csv_file = pd.read_csv(data_path+'combined.tsv',sep="\t",on_bad_lines='skip')
-  
-max_subjects = 500
-num_workers = 8
-print('num_workers : '+str(num_workers))
-
-max_queue_length = 1024
-samples_per_volume = 16
-resolution = 1
-
-if resolution == 1:
-  patch_size = 96
-  batch_size = 4
-if resolution == 2:
-  patch_size = 48
-  batch_size = 32
-
-compute_sdf = False
 
 
 def sdf(x):
@@ -53,151 +33,8 @@ def sdf(x):
   sdf = np.clip(sdf,-20,20)
   return sdf
      
-if compute_sdf is True:
-  all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
-    
-  for seg_file in all_seg:
-    id_subject = seg_file.split('/')[6].split('_')[0:2]
-    id_subject = id_subject[0]+'_'+id_subject[1]
-
-    seg = nibabel.load(seg_file)
-    seg_data = seg.get_fdata()
-
-    hull = np.where(seg_data>0,1,0).astype(np.intc)
-    hull = binary_fill_holes(hull).astype(np.intc)
-    hull = binary_fill_holes(hull).astype(np.intc)
-    
-    #remove everything outside (also label 2 which is cortical gray matter)
-    brain = (np.where(seg_data>0,1,0) - np.where(seg_data==1,1,0) - np.where(seg_data==4,1,0) - np.where(seg_data==6,1,0) - np.where(seg_data==2,1,0)).astype(np.intc)
-    brain = binary_fill_holes(brain).astype(np.intc)
-    brain = binary_fill_holes(brain).astype(np.intc)
-
-    fileout_hull = data_path+'/'+id_subject+'_hull_sdf.nii.gz'
-    fileout_brain = data_path+'/'+id_subject+'_brain_sdf.nii.gz'
-    
-    nibabel.save( nibabel.Nifti1Image(sdf(hull), seg.affine), fileout_hull)
-    nibabel.save( nibabel.Nifti1Image(sdf(brain), seg.affine), fileout_brain)
-
-    #Resample to speed up experiments
-    res = str(resolution)+'x'+str(resolution)+'x'+str(resolution)
-    go = 'ResampleImage 3 '+fileout_hull+' '+fileout_hull+' '+res+' 0 0 '
-    os.system(go)
-    go = 'ResampleImage 3 '+fileout_brain+' '+fileout_brain+' '+res+' 0 0 '
-    os.system(go)
-  
-
-all_hull_sdf = glob.glob(data_path+'**/*hull_sdf.nii.gz', recursive=True)
-all_brain_sdf = glob.glob(data_path+'**/*brain_sdf.nii.gz', recursive=True)
-
-all_hull_sdf = all_hull_sdf[:max_subjects]
-
-#Select interesting subjects using csv
-csv_subjects = []
-n_csv = len(csv_file[csv_file.keys()[0]])
-age_min = 0
-age_max = 35
-for i in range(n_csv):
-  scan_age = csv_file['scan_age'][i]
-  if scan_age > age_min and scan_age < age_max:
-    id_subject = 'sub-'+str(csv_file['participant_id'][i])+'_ses-'+str(csv_file['session_id'][i])
-    csv_subjects.append(id_subject)
-
-print(csv_subjects)
-print(len(csv_subjects))
-
-for s in csv_subjects:
-
-  hull_file = data_path+s+'_hull_sdf.nii.gz'
-  brain_file= data_path+s+'_brain_sdf.nii.gz'
-
-  if hull_file in all_hull_sdf:
-    subject = tio.Subject(
-        hull=tio.ScalarImage(hull_file),
-        brain=tio.ScalarImage(brain_file),
-      )
-  
-    subjects.append(subject) 
 
 
-""" 
-for hull_file in all_hull_sdf:
-  id_subject = hull_file.split('/')[6].split('_')[0:2]
-  id_subject = id_subject[0]+'_'+id_subject[1]
-
-  brain_file = [s for s in all_brain_sdf if id_subject in s][0]
-
-  subject = tio.Subject(
-      hull=tio.ScalarImage(hull_file),
-      brain=tio.ScalarImage(brain_file),
-    )
-  
-  subjects.append(subject) 
- """
-print('DHCP Dataset size:', len(subjects), 'subjects')
-
-
-#%% DATA AUGMENTATION
-#normalization = tio.ZNormalization()
-#SDF image intensities lie in [-20,20]
-normalization = tio.RescaleIntensity(out_min_max=(-1, 1))
-spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
-flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
-tocanonical = tio.ToCanonical()
-
-transforms = [tocanonical, flip, spatial, normalization]
-training_transform = tio.Compose(transforms)
-validation_transform = tio.Compose([tocanonical, normalization])
-
-#%%
-
-# SPLIT DATA
-seed = 42  # for reproducibility
-training_split_ratio = 0.9
-num_subjects = len(subjects)
-num_training_subjects = int(training_split_ratio * num_subjects)
-num_validation_subjects = num_subjects - num_training_subjects
-
-num_split_subjects = num_training_subjects, num_validation_subjects
-training_subjects, validation_subjects = torch.utils.data.random_split(subjects, num_split_subjects, generator=torch.Generator().manual_seed(seed))
-
-training_set = tio.SubjectsDataset(
-    training_subjects, transform=training_transform)
-
-validation_set = tio.SubjectsDataset(
-    validation_subjects, transform=validation_transform)
-
-print('Training set:', len(training_set), 'subjects')
-print('Validation set:', len(validation_set), 'subjects')
-
-#%%
-
-sampler = tio.data.UniformSampler(patch_size)
-
-patches_training_set = tio.Queue(
-  subjects_dataset=training_set,
-  max_length=max_queue_length,
-  samples_per_volume=samples_per_volume,
-  sampler=sampler,
-  num_workers=num_workers,
-  shuffle_subjects=True,
-  shuffle_patches=True,
-)
-
-patches_validation_set = tio.Queue(
-  subjects_dataset=validation_set,
-  max_length=max_queue_length,
-  samples_per_volume=samples_per_volume,
-  sampler=sampler,
-  num_workers=num_workers,
-  shuffle_subjects=False,
-  shuffle_patches=False,
-)
-
-training_loader_patches = torch.utils.data.DataLoader(
-  patches_training_set, batch_size=batch_size)
-
-validation_loader_patches = torch.utils.data.DataLoader(
-  patches_validation_set, batch_size=batch_size)
 
 #%%
 
@@ -307,7 +144,174 @@ if __name__ == '__main__':
   parser.add_argument('-e', '--epochs', help='Number of epochs (for training)', type=int, required=False, default = 10)
   parser.add_argument('-i', '--input', help='Input image for inference ', type=str, required=False)
   parser.add_argument('-m', '--model', help='Pytorch model', type=str, required=False)
+  parser.add_argument('-a', '--age_max', help='Maximum age', type=int, required=False, default = 40)
   #parser.add_argument('-o', '--output', help='Output image', type=str, required=False)
+
+  subjects = []
+  data_path = home+'/Sync-Exp/Data/DHCP/'
+  csv_file = pd.read_csv(data_path+'combined.tsv',sep="\t",on_bad_lines='skip')
+    
+  max_subjects = 500
+  num_workers = 8
+  print('num_workers : '+str(num_workers))
+
+  max_queue_length = 1024
+  samples_per_volume = 16
+  resolution = 1
+
+  if resolution == 1:
+    patch_size = 96
+    batch_size = 4
+  if resolution == 2:
+    patch_size = 48
+    batch_size = 32
+
+  compute_sdf = False
+
+  if compute_sdf is True:
+    all_seg = glob.glob(data_path+'**/*fusion_space-T2w_dseg.nii.gz', recursive=True)
+      
+    for seg_file in all_seg:
+      id_subject = seg_file.split('/')[6].split('_')[0:2]
+      id_subject = id_subject[0]+'_'+id_subject[1]
+
+      seg = nibabel.load(seg_file)
+      seg_data = seg.get_fdata()
+
+      hull = np.where(seg_data>0,1,0).astype(np.intc)
+      hull = binary_fill_holes(hull).astype(np.intc)
+      hull = binary_fill_holes(hull).astype(np.intc)
+      
+      #remove everything outside (also label 2 which is cortical gray matter)
+      brain = (np.where(seg_data>0,1,0) - np.where(seg_data==1,1,0) - np.where(seg_data==4,1,0) - np.where(seg_data==6,1,0) - np.where(seg_data==2,1,0)).astype(np.intc)
+      brain = binary_fill_holes(brain).astype(np.intc)
+      brain = binary_fill_holes(brain).astype(np.intc)
+
+      fileout_hull = data_path+'/'+id_subject+'_hull_sdf.nii.gz'
+      fileout_brain = data_path+'/'+id_subject+'_brain_sdf.nii.gz'
+      
+      nibabel.save( nibabel.Nifti1Image(sdf(hull), seg.affine), fileout_hull)
+      nibabel.save( nibabel.Nifti1Image(sdf(brain), seg.affine), fileout_brain)
+
+      #Resample to speed up experiments
+      res = str(resolution)+'x'+str(resolution)+'x'+str(resolution)
+      go = 'ResampleImage 3 '+fileout_hull+' '+fileout_hull+' '+res+' 0 0 '
+      os.system(go)
+      go = 'ResampleImage 3 '+fileout_brain+' '+fileout_brain+' '+res+' 0 0 '
+      os.system(go)
+    
+
+  all_hull_sdf = glob.glob(data_path+'**/*hull_sdf.nii.gz', recursive=True)
+  all_brain_sdf = glob.glob(data_path+'**/*brain_sdf.nii.gz', recursive=True)
+
+  all_hull_sdf = all_hull_sdf[:max_subjects]
+
+  #Select interesting subjects using csv
+  csv_subjects = []
+  n_csv = len(csv_file[csv_file.keys()[0]])
+  age_min = 0
+  age_max = 35
+  for i in range(n_csv):
+    scan_age = csv_file['scan_age'][i]
+    if scan_age > age_min and scan_age < age_max:
+      id_subject = 'sub-'+str(csv_file['participant_id'][i])+'_ses-'+str(csv_file['session_id'][i])
+      csv_subjects.append(id_subject)
+
+  print(csv_subjects)
+  print(len(csv_subjects))
+
+  for s in csv_subjects:
+
+    hull_file = data_path+s+'_hull_sdf.nii.gz'
+    brain_file= data_path+s+'_brain_sdf.nii.gz'
+
+    if hull_file in all_hull_sdf:
+      subject = tio.Subject(
+          hull=tio.ScalarImage(hull_file),
+          brain=tio.ScalarImage(brain_file),
+        )
+    
+      subjects.append(subject) 
+
+
+  """ 
+  for hull_file in all_hull_sdf:
+    id_subject = hull_file.split('/')[6].split('_')[0:2]
+    id_subject = id_subject[0]+'_'+id_subject[1]
+
+    brain_file = [s for s in all_brain_sdf if id_subject in s][0]
+
+    subject = tio.Subject(
+        hull=tio.ScalarImage(hull_file),
+        brain=tio.ScalarImage(brain_file),
+      )
+    
+    subjects.append(subject) 
+  """
+  print('DHCP Dataset size:', len(subjects), 'subjects')
+
+  #%% DATA AUGMENTATION
+  #normalization = tio.ZNormalization()
+  #SDF image intensities lie in [-20,20]
+  normalization = tio.RescaleIntensity(out_min_max=(-1, 1))
+  spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
+  flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
+  tocanonical = tio.ToCanonical()
+
+  transforms = [tocanonical, flip, spatial, normalization]
+  training_transform = tio.Compose(transforms)
+  validation_transform = tio.Compose([tocanonical, normalization])
+
+  #%%
+
+  # SPLIT DATA
+  seed = 42  # for reproducibility
+  training_split_ratio = 0.9
+  num_subjects = len(subjects)
+  num_training_subjects = int(training_split_ratio * num_subjects)
+  num_validation_subjects = num_subjects - num_training_subjects
+
+  num_split_subjects = num_training_subjects, num_validation_subjects
+  training_subjects, validation_subjects = torch.utils.data.random_split(subjects, num_split_subjects, generator=torch.Generator().manual_seed(seed))
+
+  training_set = tio.SubjectsDataset(
+      training_subjects, transform=training_transform)
+
+  validation_set = tio.SubjectsDataset(
+      validation_subjects, transform=validation_transform)
+
+  print('Training set:', len(training_set), 'subjects')
+  print('Validation set:', len(validation_set), 'subjects')
+
+  #%%
+
+  sampler = tio.data.UniformSampler(patch_size)
+
+  patches_training_set = tio.Queue(
+    subjects_dataset=training_set,
+    max_length=max_queue_length,
+    samples_per_volume=samples_per_volume,
+    sampler=sampler,
+    num_workers=num_workers,
+    shuffle_subjects=True,
+    shuffle_patches=True,
+  )
+
+  patches_validation_set = tio.Queue(
+    subjects_dataset=validation_set,
+    max_length=max_queue_length,
+    samples_per_volume=samples_per_volume,
+    sampler=sampler,
+    num_workers=num_workers,
+    shuffle_subjects=False,
+    shuffle_patches=False,
+  )
+
+  training_loader_patches = torch.utils.data.DataLoader(
+    patches_training_set, batch_size=batch_size)
+
+  validation_loader_patches = torch.utils.data.DataLoader(
+    patches_validation_set, batch_size=batch_size)
 
   args = parser.parse_args()
   
