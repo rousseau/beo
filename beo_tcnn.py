@@ -25,7 +25,7 @@ class HashMLP(pl.LightningModule):
     return self.model(x)
 
   def configure_optimizers(self):
-    optimizer = torch.optim.Adam(self.parameters(), lr=1e-4 ,weight_decay=1e-5)
+    optimizer = torch.optim.Adam(self.parameters(), lr=5e-3)
     return optimizer
 
   def training_step(self, batch, batch_idx):
@@ -47,7 +47,7 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Input image (nifti)', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output image (nifti)', type=str, required=True)
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) trained model', type=str, required=False)
-  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1024)    
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 4096)    
   parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
 
   args = parser.parse_args()
@@ -95,11 +95,11 @@ if __name__ == '__main__':
 		"per_level_scale": 1.5
 	},
 	"network": {
-		"otype": "FullyFusedMLP",
+		"otype": "CutlassMLP",
 		"activation": "ReLU",
 		"output_activation": "None",
-		"n_neurons": 128,
-		"n_hidden_layers": 2
+		"n_neurons": 64,
+		"n_hidden_layers": 1
 	}
   }
 
