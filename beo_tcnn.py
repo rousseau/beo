@@ -85,6 +85,7 @@ if __name__ == '__main__':
   loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
 
   #Training
+  #https://github.com/NVlabs/tiny-cuda-nn/blob/master/DOCUMENTATION.md
   config = {
   "encoding": {
 		"otype": "HashGrid",
