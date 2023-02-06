@@ -49,6 +49,8 @@ if __name__ == '__main__':
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) trained model', type=str, required=False)
   parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 4096)    
   parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
+  parser.add_argument('-n', '--neurons', help='Number of neurons in MLP layers', type=int, required=False, default = 128)  
+  parser.add_argument('-l', '--layers', help='Number of layers in MLP', type=int, required=False, default = 2)  
 
   args = parser.parse_args()
 
@@ -89,18 +91,18 @@ if __name__ == '__main__':
   config = {
   "encoding": {
 		"otype": "HashGrid",
-		"n_levels": 16,
+		"n_levels": 8,
 		"n_features_per_level": 2,
 		"log2_hashmap_size": 15,
 		"base_resolution": 16,
 		"per_level_scale": 1.5
 	},
 	"network": {
-		"otype": "CutlassMLP",
+		"otype": "FullyFusedMLP",
 		"activation": "ReLU",
 		"output_activation": "None",
-		"n_neurons": 64,
-		"n_hidden_layers": 1
+		"n_neurons": args.neurons,
+		"n_hidden_layers": args.layers
 	}
   }
 
