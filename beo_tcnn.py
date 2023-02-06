@@ -53,7 +53,7 @@ if __name__ == '__main__':
   parser.add_argument('-l', '--layers', help='Number of layers in MLP', type=int, required=False, default = 2)  
   parser.add_argument('-f', '--features', help='Number of features per level (hash grid)', type=int, required=False, default = 2)  
   parser.add_argument(      '--levels', help='Number of levels (hash grid)', type=int, required=False, default = 8)  
-  parser.add_argument(      '--log2_hashmap_size', help='Log2 hashmap size (hash grid)', type=int, required=False, default = 15)  
+  parser.add_argument(      '--log2_hashmap_size', help='Log2 hashmap size (hash grid)', type=int, required=False, default = 15) #15:nvidia, 19: nesvor  
 
   args = parser.parse_args()
 
@@ -96,7 +96,7 @@ if __name__ == '__main__':
 		"otype": "HashGrid",
 		"n_levels": args.levels,
 		"n_features_per_level": args.features,
-		"log2_hashmap_size": 19,#15,
+		"log2_hashmap_size": args.log2_hashmap_size,
 		"base_resolution": 16,
 		"per_level_scale": 1.3819#1.5
 	},
