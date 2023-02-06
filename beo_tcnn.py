@@ -52,6 +52,7 @@ if __name__ == '__main__':
   parser.add_argument('-n', '--neurons', help='Number of neurons in MLP layers', type=int, required=False, default = 128)  
   parser.add_argument('-l', '--layers', help='Number of layers in MLP', type=int, required=False, default = 2)  
   parser.add_argument('-f', '--features', help='Number of features per level (hash grid)', type=int, required=False, default = 2)  
+  parser.add_argument(      '--levels', help='Number of levels (hash grid)', type=int, required=False, default = 8)  
 
   args = parser.parse_args()
 
@@ -92,11 +93,11 @@ if __name__ == '__main__':
   config = {
   "encoding": {
 		"otype": "HashGrid",
-		"n_levels": 8,
+		"n_levels": args.levels,
 		"n_features_per_level": args.features,
-		"log2_hashmap_size": 15,
+		"log2_hashmap_size": 19,#15,
 		"base_resolution": 16,
-		"per_level_scale": 1.5
+		"per_level_scale": 1.3819#1.5
 	},
 	"network": {
 		"otype": "FullyFusedMLP",
