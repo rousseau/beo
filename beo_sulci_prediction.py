@@ -219,8 +219,8 @@ if __name__ == '__main__':
       id_subject = 'sub-'+str(csv_file['participant_id'][i])+'_ses-'+str(csv_file['session_id'][i])
       csv_subjects.append(id_subject)
 
-  print(csv_subjects)
-  print(len(csv_subjects))
+  #print(csv_subjects)
+  print('There are '+str(len(csv_subjects))+' subjects in the cvs file.')
 
   for s in csv_subjects:
 
@@ -234,6 +234,7 @@ if __name__ == '__main__':
         )
     
       subjects.append(subject) 
+  print('There are '+str(len(subjects))+' subjects for training and validation.')
 
 
   """ 
