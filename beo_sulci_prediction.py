@@ -355,8 +355,9 @@ if __name__ == '__main__':
   if num_epochs > 0:
     subject = validation_set[0]
   else:
+    print('Opening the following file: '+args.input)
     input_subject = tio.Subject(
-      hull=tio.ScalarImage(args.input[0]),
+      hull=tio.ScalarImage(args.input),
     )
 
     #transforms = tio.Compose([tocanonical, normalization]) 
