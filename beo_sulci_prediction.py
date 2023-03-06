@@ -234,6 +234,7 @@ if __name__ == '__main__':
         )
     
       subjects.append(subject) 
+      print(brain_file)
   print('There are '+str(len(subjects))+' subjects for training and validation.')
 
 
