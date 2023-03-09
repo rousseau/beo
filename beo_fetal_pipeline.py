@@ -16,7 +16,7 @@ if __name__ == '__main__':
   parser.add_argument('-o', '--output', help='Output folder', type=str, required=True)
   parser.add_argument('-k', '--keyword', help='Keyword used to select images (like HASTE ou TrueFISP)', type=str, required=True)
 
-  parser.add_argument('-s', '--sigma', help='sigma value for BM3D denoising', type=float, required=0.05)
+  parser.add_argument('-s', '--sigma', help='sigma value for BM3D denoising', type=float, required=0.025)
   # 0.025 TrueFISP B
   # 
   args = parser.parse_args()
@@ -45,12 +45,49 @@ if __name__ == '__main__':
     data = image.get_fdata()
     dmax = np.max(data)
     sigma = args.sigma
-    #bm3d_denoised = dmax * bm3d.bm3d(data/dmax, sigma_psd=sigma, stage_arg=bm3d.BM3DStages.ALL_STAGES)
+    bm3d_denoised = dmax * bm3d.bm3d(data/dmax, sigma_psd=sigma, stage_arg=bm3d.BM3DStages.ALL_STAGES)
     outputfile = os.path.join(args.output,'denoised',f.split('/')[-1])
-    #nibabel.save(nibabel.Nifti1Image(bm3d_denoised, image.affine), outputfile) 
+    nibabel.save(nibabel.Nifti1Image(bm3d_denoised, image.affine), outputfile) 
 
+  #Find automatically all images in denoised directory 
+  denoised_stacks = []
+  files = glob.glob(os.path.join(args.output,'denoised','*.nii.gz'))
+  for f in files:
+    if args.keyword in f:
+      denoised_stacks.append(f)
+  print('List of denoised stacks:')    
+  print(denoised_stacks)      
+  
   #fetal brain masking in raw images
   cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_segment_fetal_brains '
-  cmd_os+= ''  
+  docker_output = os.path.join(args.output,'seg')
+  docker_output = docker_output.replace('rousseau','data')
+  cmd_os+= ' --dir-output '+docker_output  
+  docker_stacks = [s.replace('rousseau','data') for s in denoised_stacks]
+  docker_masks  = [s.replace('denoised','seg') for s in docker_stacks]
+
+  cmd_os+= ' --filenames '
+  for i in docker_stacks:
+    cmd_os+= i+' '
+  cmd_os+= ' --filenames-masks '
+  for i in docker_masks:
+    cmd_os+= i+' '
+
   print(cmd_os)
+  os.system(cmd_os)
   
+  #reconstruction using niftymic
+  cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_reconstruct_volume '
+  docker_output = os.path.join(args.output,'recon')
+  docker_output = docker_output.replace('rousseau','data')
+  cmd_os+= ' --output '+os.path.join(docker_output,'niftymic_'+args.keyword+'_r05.nii.gz')+' --isotropic-resolution 0.5 '
+
+  cmd_os+= ' --filenames '
+  for i in docker_stacks:
+    cmd_os+= i+' '
+  cmd_os+= ' --filenames-masks '
+  for i in docker_masks:
+    cmd_os+= i+' '
+
+  print(cmd_os)
+  os.system(cmd_os)
