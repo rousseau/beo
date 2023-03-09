@@ -91,3 +91,16 @@ if __name__ == '__main__':
 
   print(cmd_os)
   os.system(cmd_os)
+
+  #reconstruction using nesvor
+  go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r6.nii.gz --output-resolution 6 '
+  go+= '--output-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
+  go+= ' --input-stacks '
+  for i in denoised_stacks:
+    go+= i+' '
+  mask_stacks =[s.replace('seg','denoised') for s in  denoised_stacks] 
+  go+= ' --stack-masks '
+  for i in mask_stacks:
+    go+= i+' '
+  print(go)
+  os.system(go)    
