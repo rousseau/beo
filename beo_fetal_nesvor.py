@@ -24,7 +24,8 @@ if __name__ == '__main__':
       images.append(args.input+'/'+f.split('/')[-1])
   print(images)
 
-  go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r4.nii.gz --output-resolution 4 '
+  go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r6.nii.gz --output-resolution 6 '
+  go+= '--inference-batch-size 4000 --n-inference-samples 512 '
   go+= '--output-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
   go+= ' --input-stacks '
   for i in images:
