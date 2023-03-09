@@ -31,7 +31,7 @@ if __name__ == '__main__':
       images.append(f)
   print(images)
 
-  go = 'niftymic_segment_fetal_brains --dir-output '+args.output
+  go = 'niftymic_segment_fetal_brains --dir-output '+args.output+'/seg'
   go+= ' --filenames '
   for i in images:
     go+= i+' '
@@ -40,6 +40,15 @@ if __name__ == '__main__':
     go+= args.output+'/seg/'+i.split('/')[-1]+' '
   print(go)  
   #os.system(go)
+
+  #Si problème rencontré lors de la segmentation, il ne faut prendre que les images qui ont été segmentées
+  #On relit donc les images dans le répertoire seg
+  images = []
+  files = glob.glob(args.output+'/seg/*.nii.gz')
+  for f in files:
+    if args.keyword in f:
+      images.append(args.input+'/'+f.split('/')[-1])
+  print(images)
 
   go = 'niftymic_reconstruct_volume --output '+args.output+'/recon/niftymic_'+args.keyword+'_r05.nii.gz --isotropic-resolution 0.5'
   go+= ' --filenames '
