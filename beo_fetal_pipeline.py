@@ -15,10 +15,8 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Input folder', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output folder', type=str, required=True)
   parser.add_argument('-k', '--keyword', help='Keyword used to select images (like HASTE ou TrueFISP)', type=str, required=True)
+  parser.add_argument('-s', '--sigma', help='sigma value for BM3D denoising', type=float, required=False, default=0.025) 
 
-  parser.add_argument('-s', '--sigma', help='sigma value for BM3D denoising', type=float, required=0.025)
-  # 0.025 TrueFISP B
-  # 
   args = parser.parse_args()
 
 
@@ -45,9 +43,9 @@ if __name__ == '__main__':
     data = image.get_fdata()
     dmax = np.max(data)
     sigma = args.sigma
-    bm3d_denoised = dmax * bm3d.bm3d(data/dmax, sigma_psd=sigma, stage_arg=bm3d.BM3DStages.ALL_STAGES)
+    #bm3d_denoised = dmax * bm3d.bm3d(data/dmax, sigma_psd=sigma, stage_arg=bm3d.BM3DStages.ALL_STAGES)
     outputfile = os.path.join(args.output,'denoised',f.split('/')[-1])
-    nibabel.save(nibabel.Nifti1Image(bm3d_denoised, image.affine), outputfile) 
+    #nibabel.save(nibabel.Nifti1Image(bm3d_denoised, image.affine), outputfile) 
 
   #Find automatically all images in denoised directory 
   denoised_stacks = []
@@ -74,7 +72,7 @@ if __name__ == '__main__':
     cmd_os+= i+' '
 
   print(cmd_os)
-  os.system(cmd_os)
+  #os.system(cmd_os)
   
   #reconstruction using niftymic
   cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_reconstruct_volume '
@@ -90,10 +88,13 @@ if __name__ == '__main__':
     cmd_os+= i+' '
 
   print(cmd_os)
-  os.system(cmd_os)
+  #os.system(cmd_os)
 
   #reconstruction using nesvor
-  go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r6.nii.gz --output-resolution 6 '
+  os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+  go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r6.nii.gz --output-resolution 6 --verbose 2 '
+  go+= '--n-levels-bias 1 '
+  go+= '--inference-batch-size 2048 --n-inference-samples 512 '
   go+= '--output-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
   go+= ' --input-stacks '
   for i in denoised_stacks:
@@ -104,3 +105,8 @@ if __name__ == '__main__':
     go+= i+' '
   print(go)
   os.system(go)    
+
+  go = 'nesvor sample-volume --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r05.nii.gz --output-resolution 0.5 '
+  go+= '--input-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
+  print(go)
+  os.system(go)  
