@@ -99,14 +99,14 @@ if __name__ == '__main__':
   go+= ' --input-stacks '
   for i in denoised_stacks:
     go+= i+' '
-  mask_stacks =[s.replace('seg','denoised') for s in  denoised_stacks] 
+  mask_stacks =[s.replace('denoised','seg') for s in  denoised_stacks] 
   go+= ' --stack-masks '
   for i in mask_stacks:
     go+= i+' '
   print(go)
   os.system(go)    
 
-  go = 'nesvor sample-volume --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r05.nii.gz --output-resolution 0.5 '
+  go = 'nesvor sample-volume --inference-batch-size 2048 --verbose 2 --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r05.nii.gz --output-resolution 0.5 '
   go+= '--input-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
   print(go)
   os.system(go)  
