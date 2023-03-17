@@ -110,7 +110,9 @@ if __name__ == '__main__':
   }
 
   net = HashMLP(config = config, dim_in=3, dim_out=1)
-  trainer = pl.Trainer(max_epochs=num_epochs, precision=16)
+  #trainer = pl.Trainer(max_epochs=num_epochs, precision=16) #3080
+  trainer = pl.Trainer(gpus=1,max_epochs=num_epochs, precision=16) #Titan  
+  
   trainer.fit(net, loader)
 
   if args.model is not None:
