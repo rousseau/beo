@@ -71,9 +71,9 @@ if __name__ == '__main__':
 
   #Create grid
   dim = 3
-  x = torch.linspace(-1, 1, steps=data.shape[0])
-  y = torch.linspace(-1, 1, steps=data.shape[1])
-  z = torch.linspace(-1, 1, steps=data.shape[2])
+  x = torch.linspace(0, 1, steps=data.shape[0])
+  y = torch.linspace(0, 1, steps=data.shape[1])
+  z = torch.linspace(0, 1, steps=data.shape[2])
   
   mgrid = torch.stack(torch.meshgrid(x,y,z), dim=-1)
   
@@ -110,9 +110,9 @@ if __name__ == '__main__':
   }
 
   net = HashMLP(config = config, dim_in=3, dim_out=1)
-  #trainer = pl.Trainer(max_epochs=num_epochs, precision=16) #3080
-  trainer = pl.Trainer(gpus=1,max_epochs=num_epochs, precision=16) #Titan  
-  
+  trainer = pl.Trainer(max_epochs=num_epochs, precision=16)
+
+  #net = torch.compile(net)   #Not working for Titan
   trainer.fit(net, loader)
 
   if args.model is not None:
