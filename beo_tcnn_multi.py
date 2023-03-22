@@ -84,7 +84,7 @@ if __name__ == '__main__':
   y = torch.linspace(0, 1, steps=ny)
   z = torch.linspace(0, 1, steps=nz)
   
-  mgrid = torch.stack(torch.meshgrid(x,y,z), dim=-1)
+  mgrid = torch.stack(torch.meshgrid(x,y,z,indexing='ij'), dim=-1)
   
   #Convert to X=(x,y,z) and Y=intensity
   X = torch.Tensor(mgrid.reshape(-1,dim))
@@ -137,7 +137,7 @@ if __name__ == '__main__':
   net = HashMLP(config = config, dim_in=3, dim_out=n_images)
   trainer = pl.Trainer(max_epochs=num_epochs, precision=16)
 
-  #net = torch.compile(net)   #Not working for Titan
+  #net = torch.compile(net)   #Not working for old GPU like Titan
   trainer.fit(net, loader)
 
   if args.model is not None:
