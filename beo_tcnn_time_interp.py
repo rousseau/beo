@@ -59,7 +59,7 @@ if __name__ == '__main__':
   parser.add_argument('-i', '--input', help='Multiple input images (nifti)', action='append', type=str, required=True)
   parser.add_argument('-o', '--output', help='Output image (nifti)', type=str, required=True)
   parser.add_argument('-m', '--model', help='Pytorch lightning (ckpt file) trained model', type=str, required=False)
-  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 4096)    
+  parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 8192)    
   parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required=False, default = 10)  
   parser.add_argument('-n', '--neurons', help='Number of neurons in MLP layers', type=int, required=False, default = 128)  
   parser.add_argument('-l', '--layers', help='Number of layers in MLP', type=int, required=False, default = 2)  
@@ -119,9 +119,6 @@ if __name__ == '__main__':
     Ytmp = torch.reshape(Ytmp, (-1,1))
     Y = torch.concat((Y,Ytmp),dim=0)
 
-  print(X.shape)
-  print(Y.shape)    
-
   #Pytorch dataloader
   dataset = torch.utils.data.TensorDataset(X,Y)
   loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
@@ -168,7 +165,7 @@ if __name__ == '__main__':
   nib.save(nib.Nifti1Image(output, image.affine), output_file)     
  
   #Prediction at a specific time
-  t = torch.linspace(0, 0.50, steps=3)  
+  t = torch.linspace(0, 1, steps=15)  
   #t = torch.Tensor([0,0.1,0.2,0.25])   
   mgrid = torch.stack(torch.meshgrid(t,x,y,z,indexing='ij'), dim=-1)
   X = torch.Tensor(mgrid.reshape(-1,dim))
