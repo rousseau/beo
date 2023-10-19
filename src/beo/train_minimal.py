@@ -244,6 +244,13 @@ if __name__ == '__main__':
             # train generators
             self.toggle_optimizer(optimizer_g)
 
+            # Identity loss
+            id_x = self.generator_X(x)
+            loss_id_x = F.l1_loss(x, id_x)*5.0 
+            id_y = self.generator_Y(y)
+            loss_id_y = F.l1_loss(y, id_y)*5.0 
+
+
             # GAN loss
             fake_y = self.generator_Y(x)
             pred_fake_y = self.discriminator_Y(fake_y)
@@ -260,7 +267,7 @@ if __name__ == '__main__':
             loss_cycle_YXY = F.l1_loss(y, recon_y)*10.0 
 
             # Total loss     
-            g_loss = loss_GAN_X2Y + loss_GAN_Y2X + loss_cycle_XYX + loss_cycle_YXY
+            g_loss = loss_id_x + loss_id_y + loss_GAN_X2Y + loss_GAN_Y2X + loss_cycle_XYX + loss_cycle_YXY
             self.manual_backward(g_loss)
             optimizer_g.step()
             optimizer_g.zero_grad()
