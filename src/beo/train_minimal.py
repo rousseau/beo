@@ -19,14 +19,20 @@ if __name__ == '__main__':
     parser.add_argument('--saving_path', help='Output folder to save results', type=str, required = True)
     parser.add_argument('--static_path', help='Input folder for static data', type=str, required = True)
     parser.add_argument('--dynamic_path', help='Input folder for dynamic data', type=str, required = True)
+    parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 64)
+    parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 32)
 
     args = parser.parse_args()
 
     num_epochs = args.epochs
+    p_size = args.patch_size
+    batch_size = args.batch_size
 
     static_path=args.static_path
     dynamic_path=args.dynamic_path
-    saving_path=os.path.join(args.saving_path,datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+'_results')
+
+    suffix = '_res_e'+str(num_epochs)+'_p'+str(p_size)
+    saving_path=os.path.join(args.saving_path,datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+suffix)
     print(saving_path)
  
     if not os.path.exists(saving_path):
@@ -104,10 +110,9 @@ if __name__ == '__main__':
     #%%
     num_workers = 4
     print('num_workers : '+str(num_workers))
-    patch_size = (64,64,1)
+    patch_size = (p_size,p_size,1)
     max_queue_length = 1024
     samples_per_volume = 128
-    batch_size = 128
 
     sampler = tio.data.UniformSampler(patch_size)
 
@@ -183,10 +188,14 @@ if __name__ == '__main__':
             return z    
 
     class Discriminator(nn.Module):
-        def __init__(self):
+        def __init__(self, patch_size = 64):
             super().__init__()
     
             self.n_features = 16
+            self.k_size = 4 #default for patch size of 64
+            if patch_size == 128:
+                self.k_size = 8
+
             #Patch 64*64*1
             self.conv1 = nn.Conv3d(1, self.n_features, kernel_size=3, padding=1)
             self.conv2 = nn.Conv3d(self.n_features, 2*self.n_features, stride=(2,2,1), kernel_size=3, padding=1)
@@ -207,18 +216,18 @@ if __name__ == '__main__':
             x = nn.ReLU()(x)
             x = self.conv5(x) # 4x4x1x256
             x = nn.ReLU()(x)
-            x = nn.AvgPool3d(kernel_size=(4,4,1), stride=1)(x)
+            x = nn.AvgPool3d(kernel_size=(self.k_size,self.k_size,1), stride=1)(x)
             x = self.conv6(x)
             return nn.Sigmoid()(x)
 
     #%%
     class GAN(pl.LightningModule):
-        def __init__(self):
+        def __init__(self, patch_size = 64):
             super(GAN, self).__init__()
             self.generator_X = Generator()
-            self.discriminator_X = Discriminator()
+            self.discriminator_X = Discriminator(patch_size=patch_size)
             self.generator_Y = Generator()
-            self.discriminator_Y = Discriminator()
+            self.discriminator_Y = Discriminator(patch_size=patch_size)
             self.automatic_optimization = False
 
         def forward(self, x, y):
@@ -334,7 +343,7 @@ if __name__ == '__main__':
             plt.close()
 
     #%%
-    model = GAN()
+    model = GAN(patch_size=p_size)
 
     logger = TensorBoardLogger(save_dir = saving_path)
     trainer = pl.Trainer(
@@ -351,7 +360,7 @@ if __name__ == '__main__':
     print('Inference')
     model.eval()
     subject = validation_set[0]
-    patch_overlap = (32,32,0)
+    patch_overlap = (p_size/2,p_size/2,0)
 
     grid_sampler = tio.inference.GridSampler(
                     subject,
