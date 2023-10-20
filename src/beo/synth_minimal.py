@@ -2,7 +2,6 @@ import torchio as tio
 import os
 from os.path import expanduser
 import glob
-home = expanduser("~")
 import itertools
 import torch
 import torch.nn as nn 
@@ -12,6 +11,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from datetime import datetime
 from matplotlib import pyplot as plt
 import argparse
+
+home = expanduser("~")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Synthesis')
