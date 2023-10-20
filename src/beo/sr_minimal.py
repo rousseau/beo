@@ -18,7 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('--saving_path', help='Output folder to save results', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 250)
     parser.add_argument('-m', '--model', help='Pytorch Lightning model', type=str, required=False)
-    parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 90)
+    parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 88)
     parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1)
     parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
     parser.add_argument('--n_inference', help='Number of subjects during inference', type=int, required=False, default=1)
@@ -55,8 +55,8 @@ if __name__ == '__main__':
     # resolution hr : 0.26 x 0.26 x 0.5
     # resolution lr : 0.56 x 0.56 x 4
     # resolution claire : 0.41 x 0.41 x 8
-    b1 = tio.Blur(std=(0.001,0.001,1), include='lr') #blur
-    d1 = tio.Resample((0.5,0.5,8), include='lr')     #downsampling
+    b1 = tio.Blur(std=(1,0.001,0.001), include='lr') #blur
+    d1 = tio.Resample((8,0.5,0.5), include='lr')     #downsampling
     u1 = tio.Resample(target='hr', include='lr')     #upsampling
 
     transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1]
@@ -83,7 +83,7 @@ if __name__ == '__main__':
     print('Validation set:', len(validation_set), 'subjects')
 
     #%%
-    num_workers = 16
+    num_workers = 8
     print('num_workers : '+str(num_workers))
     max_queue_length = 1024
     samples_per_volume = 16
@@ -213,7 +213,7 @@ if __name__ == '__main__':
         accelerator='gpu',
         max_epochs=num_epochs,
         logger=logger,
-        strategy="ddp_find_unused_parameters_true"
+        #strategy="ddp_find_unused_parameters_true"
     )
     trainer.fit(model, training_loader_patches, validation_loader_patches)
     trainer.save_checkpoint(saving_path+'/SR.ckpt')
