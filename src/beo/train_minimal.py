@@ -22,12 +22,14 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 64)
     parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 32)
     parser.add_argument('-m', '--model', help='Pytorch Lightning model', type=str, required=False)
+    parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
 
     args = parser.parse_args()
 
     num_epochs = args.epochs
     p_size = int(args.patch_size)
     batch_size = args.batch_size
+    overlap_rate = args.overlap_patch_rate
 
     static_path=args.static_path
     dynamic_path=args.dynamic_path
@@ -370,7 +372,7 @@ if __name__ == '__main__':
     print('Inference')
     model.eval()
     subject = validation_set[0]
-    patch_overlap = (int(p_size/2),int(p_size/2),0)
+    patch_overlap = (int(p_size*overlap_rate),int(p_size*overlap_rate),0)
 
     grid_sampler = tio.inference.GridSampler(
                     subject,
