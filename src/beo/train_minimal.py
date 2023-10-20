@@ -21,11 +21,12 @@ if __name__ == '__main__':
     parser.add_argument('--dynamic_path', help='Input folder for dynamic data', type=str, required = True)
     parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 64)
     parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 32)
+    parser.add_argument('-m', '--model', help='Pytorch Lightning model', type=str, required=False)
 
     args = parser.parse_args()
 
     num_epochs = args.epochs
-    p_size = args.patch_size
+    p_size = int(args.patch_size)
     batch_size = args.batch_size
 
     static_path=args.static_path
@@ -250,7 +251,6 @@ if __name__ == '__main__':
             id_y = self.generator_Y(y)
             loss_id_y = F.l1_loss(y, id_y)*5.0 
 
-
             # GAN loss
             fake_y = self.generator_Y(x)
             pred_fake_y = self.discriminator_Y(fake_y)
@@ -350,7 +350,10 @@ if __name__ == '__main__':
             plt.close()
 
     #%%
-    model = GAN(patch_size=p_size)
+    if args.model is not None:
+        model = GAN.load_from_checkpoint(args.model)
+    else:    
+        model = GAN(patch_size=p_size)
 
     logger = TensorBoardLogger(save_dir = saving_path)
     trainer = pl.Trainer(
@@ -367,7 +370,7 @@ if __name__ == '__main__':
     print('Inference')
     model.eval()
     subject = validation_set[0]
-    patch_overlap = (p_size/2,p_size/2,0)
+    patch_overlap = (int(p_size/2),int(p_size/2),0)
 
     grid_sampler = tio.inference.GridSampler(
                     subject,
