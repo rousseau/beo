@@ -298,7 +298,7 @@ if __name__ == '__main__':
         accelerator='gpu',
         max_epochs=num_epochs,
         logger=logger,
-        #strategy="ddp_find_unused_parameters_true"
+        strategy="ddp_find_unused_parameters_true",
     )
     trainer.fit(model, training_loader_patches, validation_loader_patches)
     trainer.save_checkpoint(saving_path+'/SR.ckpt')
