@@ -351,8 +351,8 @@ if __name__ == '__main__':
                 locations = patches_batch[tio.LOCATION]
 
                 lr = lr.to(device)
-                (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05) = model(lr)
-                rlr = x_1_to_05
+                (x7,x6,x5,x4) = model(lr)
+                rlr = x7
 
                 aggregators['rlr'].add_batch(rlr.cpu(), locations)  
 
