@@ -291,4 +291,4 @@ if __name__ == '__main__':
             o.save(saving_path+'/'+k+'_'+str(i)+'.nii.gz')
 
         subject['hr'].save(saving_path+'/hr_'+str(i)+'.nii.gz')
-        subject['lr'].save(saving_path+'/lr_'+str(i)+'.nii.gz')      
+        subject['lr8'].save(saving_path+'/lr_'+str(i)+'.nii.gz')      
