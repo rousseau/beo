@@ -174,6 +174,74 @@ if __name__ == '__main__':
             z = self.outconv(z)
             return z  
 
+    class Unet(nn.Module):
+        def __init__(self, n_channels = 1, n_classes = 1, n_features = 8):
+            super(Unet, self).__init__()
+
+            self.n_channels = n_channels
+            self.n_classes = n_classes
+            self.n_features = n_features
+
+            self.inconv = nn.Conv3d(self.in_channels, self.n_features, kernel_size=3, padding=1)
+
+            def double_conv(in_channels, out_channels):
+                return nn.Sequential(
+                    nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+                    nn.BatchNorm3d(out_channels),
+                    nn.ReLU(inplace=True),
+                    nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1),
+                    nn.BatchNorm3d(out_channels),
+                    nn.ReLU(inplace=True),
+                )
+
+            self.dc1 = double_conv(self.n_channels, self.n_features)
+            self.dc2 = double_conv(self.n_features, self.n_features)
+            self.dc3 = double_conv(self.n_features, self.n_features)
+            self.dc4 = double_conv(self.n_features, self.n_features)
+            self.dc4out = double_conv(self.n_features, self.n_classes)
+
+            self.dc5 = double_conv(self.n_features*2, self.n_features)
+            self.dc5out = double_conv(self.n_features, self.n_classes)
+
+            self.dc6 = double_conv(self.n_features*2, self.n_features)
+            self.dc6out = double_conv(self.n_features, self.n_classes)
+
+            self.dc7 = double_conv(self.n_features*2, self.n_features)
+
+            self.ap = nn.AvgPool3d(2)
+
+            self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
+
+            self.out = nn.Conv3d(self.n_features, self.n_classes, kernel_size=1)
+
+        def forward(self, x):
+            x1 = self.dc1(x) # p 64, reso native z en 0.5
+
+            x2 = self.ap(x1) # p 32, reso native z en 1
+            x2 = self.dc2(x2)
+
+            x3 = self.ap(x2) # p 16, reso native z en 2
+            x3 = self.dc3(x3)
+
+            x4 = self.ap(x3) # p 8, reso native z en 4
+            x4 = self.dc4(x4)
+            x4_out = self.dc4out(self.up(self.up(self.up(x4))))
+
+            x5 = torch.cat([self.up(x4),x3], dim=1)
+            x5 = self.dc5(x5)
+            x5_out = self.dc5out(self.up(self.up(x5)))
+
+            x6 = self.up(x5)
+            x6 = torch.cat([x5,x2], dim=1)
+            x6 = self.dc6(x6)
+            x6_out = self.dc6out(self.up(x6))
+
+            x7 = self.up(x6)
+            x7 = torch.cat([x7,x1], dim=1)
+            x7 = self.dc7(x7)
+
+            return (self.out(x7), x6_out, x5_out, x4_out)
+
 #%%
     class Net(pl.LightningModule):
         def __init__(self, in_channels = 1, out_channels = 1, n_filters = 32, n_layers = 5, activation = 'relu'):
@@ -184,20 +252,23 @@ if __name__ == '__main__':
             self.n_features = n_filters
 
             #self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
-            self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
-            self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
-            self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
-            self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            #self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            #self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            #self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            #self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            self.net = Unet(n_channels = in_channels, n_classes = out_channels, n_features = n_filters)
+
             self.save_hyperparameters()
 
         def forward(self, x):
             #1, 2, 4, 8
-            x_8_to_4 = self.net_8_to_4(x)
-            x_4_to_2 = self.net_4_to_2(x_8_to_4)
-            x_2_to_1 = self.net_2_to_1(x_4_to_2)
-            x_1_to_05 = self.net_1_to_05(x_2_to_1)
+            #x_8_to_4 = self.net_8_to_4(x)
+            #x_4_to_2 = self.net_4_to_2(x_8_to_4)
+            #x_2_to_1 = self.net_2_to_1(x_4_to_2)
+            #x_1_to_05 = self.net_1_to_05(x_2_to_1)
             #return self.net(x)
-            return (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05)
+            #return (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05)
+            return self.net(x)
 
         def evaluate_batch(self, batch):
             patches_batch = batch
