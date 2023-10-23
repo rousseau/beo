@@ -24,7 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
     parser.add_argument('--n_inference', help='Number of subjects during inference', type=int, required=False, default=1)
     parser.add_argument('-s', '--suffix', help='Suffix', type=str, required=False, default='_sr')
-    parser.add_argument(, '--samples_per_volume', help='Sampled patch per volume', type=int, required=False, default = 16)
+    parser.add_argument('--samples_per_volume', help='Sampled patch per volume', type=int, required=False, default = 16)
 
     args = parser.parse_args()
 
