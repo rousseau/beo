@@ -24,6 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
     parser.add_argument('--n_inference', help='Number of subjects during inference', type=int, required=False, default=1)
     parser.add_argument('-s', '--suffix', help='Suffix', type=str, required=False, default='_sr')
+    parser.add_argument(, '--samples_per_volume', help='Sampled patch per volume', type=int, required=False, default = 16)
 
     args = parser.parse_args()
 
@@ -31,11 +32,13 @@ if __name__ == '__main__':
     patch_size = int(args.patch_size)
     batch_size = args.batch_size
     overlap_rate = args.overlap_patch_rate
+    samples_per_volume = args.samples_per_volume
 
     suffix = args.suffix
     suffix+= '_e'+str(num_epochs)
     suffix+= '_p'+str(patch_size)
     suffix+= '_b'+str(batch_size)
+    suffix+= '_s'+str(samples_per_volume)
     #suffix+= '_n'+str(args.n_layers)
     saving_path=os.path.join(args.saving_path,datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+suffix)
     print(saving_path)
@@ -93,7 +96,6 @@ if __name__ == '__main__':
     num_workers = 8
     print('num_workers : '+str(num_workers))
     max_queue_length = 1024
-    samples_per_volume = 16
 
     sampler = tio.data.UniformSampler(patch_size)
 
