@@ -44,10 +44,7 @@ if __name__ == '__main__':
     for hr_file in all_hr:
         subject = tio.Subject(
             hr=tio.ScalarImage(hr_file),
-            lr8=tio.ScalarImage(hr_file),
-            lr4=tio.ScalarImage(hr_file),
-            lr2=tio.ScalarImage(hr_file),
-            lr1=tio.ScalarImage(hr_file),
+            lr=tio.ScalarImage(hr_file),
         )
         subjects.append(subject) 
     print('Dataset size:', len(subjects), 'subjects')
@@ -62,22 +59,14 @@ if __name__ == '__main__':
     # resolution hr : 0.26 x 0.26 x 0.5
     # resolution lr : 0.56 x 0.56 x 4
     # resolution claire : 0.41 x 0.41 x 8
-    b8 = tio.Blur(std=(2,0.001,0.001), include='lr8') #blur
-    d8 = tio.Resample((8,0.5,0.5), include='lr8')     #downsampling
-    u8 = tio.Resample(target='hr', include='lr8')     #upsampling
-    b4 = tio.Blur(std=(1.5,0.001,0.001), include='lr4') #blur
-    d4 = tio.Resample((4,0.5,0.5), include='lr4')     #downsampling
-    u4 = tio.Resample(target='hr', include='lr4')     #upsampling
-    b2 = tio.Blur(std=(1,0.001,0.001), include='lr2') #blur
-    d2 = tio.Resample((2,0.5,0.5), include='lr2')     #downsampling
-    u2 = tio.Resample(target='hr', include='lr2')     #upsampling
-    b1 = tio.Blur(std=(1,0.001,0.001), include='lr1') #blur
-    d1 = tio.Resample((1,0.5,0.5), include='lr1')     #downsampling
-    u1 = tio.Resample(target='hr', include='lr1')     #upsampling
+    # test 1x1x2
+    b1 = tio.Blur(std=(1,0.001,0.001), include='lr') #blur
+    d1 = tio.Resample((2,1,1), include='lr')     #downsampling
+    u1 = tio.Resample(target='hr', include='lr')     #upsampling
 
-    transforms = [tocanonical, flip, spatial, normalization, b8, d8, u8, b4, d4, u4, b2, d2, u2, b1, d1, u1]
+    transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1]
     training_transform = tio.Compose(transforms)
-    validation_transform = tio.Compose([tocanonical, normalization, b8, d8, u8, b4, d4, u4, b2, d2, u2, b1, d1, u1])
+    validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1])
 
     # SPLIT DATA
     seed = 42  # for reproducibility
@@ -272,12 +261,9 @@ if __name__ == '__main__':
             patches_batch = batch
 
             hr = patches_batch['hr'][tio.DATA]
-            lr8 = patches_batch['lr8'][tio.DATA]
-            lr4 = patches_batch['lr4'][tio.DATA]
-            lr2 = patches_batch['lr2'][tio.DATA]
-            lr1 = patches_batch['lr1'][tio.DATA]
+            lr = patches_batch['lr'][tio.DATA]
 
-            (x7,x6,x5,x4) = self(lr8)
+            (x7,x6,x5,x4) = self(lr)
 
             loss_recon = F.l1_loss(x7,hr) + F.l1_loss(x6,hr) + F.l1_loss(x5,hr) + F.l1_loss(x4,hr) # decomp residuelle ou non ?
 
@@ -346,7 +332,7 @@ if __name__ == '__main__':
 
         with torch.no_grad():
             for patches_batch in patch_loader:
-                lr = patches_batch['lr8'][tio.DATA]
+                lr = patches_batch['lr'][tio.DATA]
 
                 locations = patches_batch[tio.LOCATION]
 
