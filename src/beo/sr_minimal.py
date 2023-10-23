@@ -20,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--model', help='Pytorch Lightning model', type=str, required=False)
     parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = 88)
     parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 1)
+    parser.add_argument('-n', '--n_layers', help='Number of residual layers', type=int, required=False, default = 5)
     parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
     parser.add_argument('--n_inference', help='Number of subjects during inference', type=int, required=False, default=1)
 
@@ -172,7 +173,7 @@ if __name__ == '__main__':
 
 #%%
     class Net(pl.LightningModule):
-        def __init__(self, in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu'):
+        def __init__(self, in_channels = 1, out_channels = 1, n_filters = 32, n_layers = 5, activation = 'relu'):
             super(Net, self).__init__()
 
             self.in_channels = in_channels 
@@ -180,10 +181,10 @@ if __name__ == '__main__':
             self.n_features = n_filters
 
             #self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
-            self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
-            self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
-            self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
-            self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
+            self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             self.save_hyperparameters()
 
         def forward(self, x):
@@ -232,7 +233,7 @@ if __name__ == '__main__':
     if args.model is not None:
         model = Net.load_from_checkpoint(args.model)
     else:    
-        model = Net()
+        model = Net(n_layers=args.n_layers)
 
     logger = TensorBoardLogger(save_dir = saving_path)
     trainer = pl.Trainer(
