@@ -23,6 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--n_layers', help='Number of residual layers', type=int, required=False, default = 5)
     parser.add_argument('--overlap_patch_rate', help='Rate for patch overlap [0,1[ for inference', type=float, required=False, default=0.5)
     parser.add_argument('--n_inference', help='Number of subjects during inference', type=int, required=False, default=1)
+    parser.add_argument('-s', '--suffix', help='Suffix', type=str, required=False, default='_sr')
 
     args = parser.parse_args()
 
@@ -31,10 +32,11 @@ if __name__ == '__main__':
     batch_size = args.batch_size
     overlap_rate = args.overlap_patch_rate
 
-    suffix = '_sr_e'+str(num_epochs)
+    suffix = args.suffix
+    suffix+= '_e'+str(num_epochs)
     suffix+= '_p'+str(patch_size)
     suffix+= '_b'+str(batch_size)
-    suffix+= '_n'+str(args.n_layers)
+    #suffix+= '_n'+str(args.n_layers)
     saving_path=os.path.join(args.saving_path,datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+suffix)
     print(saving_path)
 
@@ -59,7 +61,7 @@ if __name__ == '__main__':
     # resolution hr : 0.26 x 0.26 x 0.5
     # resolution lr : 0.56 x 0.56 x 4
     # resolution claire : 0.41 x 0.41 x 8
-    # test 1x1x2
+    # test 1x1x2 (x4!)
     b1 = tio.Blur(std=(1,0.001,0.001), include='lr') #blur
     d1 = tio.Resample((2,1,1), include='lr')     #downsampling
     u1 = tio.Resample(target='hr', include='lr')     #upsampling
@@ -238,12 +240,12 @@ if __name__ == '__main__':
             self.out_channels = out_channels
             self.n_filters = n_filters
 
-            #self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
             #self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
-            self.net = Unet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters)
+            #self.net = Unet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters)
 
             self.save_hyperparameters()
 
@@ -263,9 +265,10 @@ if __name__ == '__main__':
             hr = patches_batch['hr'][tio.DATA]
             lr = patches_batch['lr'][tio.DATA]
 
-            (x7,x6,x5,x4) = self(lr)
+            #(x7,x6,x5,x4) = self(lr)
+            rlr = self(lr)
 
-            loss_recon = F.l1_loss(x7,hr)# + F.l1_loss(x6,hr) + F.l1_loss(x5,hr) + F.l1_loss(x4,hr) # decomp residuelle ou non ?
+            loss_recon = F.l1_loss(rlr,hr)# + F.l1_loss(x6,hr) + F.l1_loss(x5,hr) + F.l1_loss(x4,hr) # decomp residuelle ou non ?
 
             return loss_recon
             
@@ -337,8 +340,7 @@ if __name__ == '__main__':
                 locations = patches_batch[tio.LOCATION]
 
                 lr = lr.to(device)
-                (x7,x6,x5,x4) = model(lr)
-                rlr = x7
+                rlr = model(lr)
 
                 aggregators['rlr'].add_batch(rlr.cpu(), locations)  
 
