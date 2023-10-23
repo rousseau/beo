@@ -175,14 +175,14 @@ if __name__ == '__main__':
             return z  
 
     class Unet(nn.Module):
-        def __init__(self, n_channels = 1, n_classes = 1, n_features = 8):
+        def __init__(self, in_channels = 1, out_channels = 1, n_filters = 8):
             super(Unet, self).__init__()
 
-            self.n_channels = n_channels
-            self.n_classes = n_classes
-            self.n_features = n_features
+            self.in_channels = in_channels
+            self.out_channels = out_channels
+            self.n_filters = n_filters
 
-            self.inconv = nn.Conv3d(self.in_channels, self.n_features, kernel_size=3, padding=1)
+            self.inconv = nn.Conv3d(self.in_channels, self.n_filters, kernel_size=3, padding=1)
 
             def double_conv(in_channels, out_channels):
                 return nn.Sequential(
@@ -194,25 +194,25 @@ if __name__ == '__main__':
                     nn.ReLU(inplace=True),
                 )
 
-            self.dc1 = double_conv(self.n_channels, self.n_features)
-            self.dc2 = double_conv(self.n_features, self.n_features)
-            self.dc3 = double_conv(self.n_features, self.n_features)
-            self.dc4 = double_conv(self.n_features, self.n_features)
-            self.dc4out = double_conv(self.n_features, self.n_classes)
+            self.dc1 = double_conv(self.in_channels, self.n_filters)
+            self.dc2 = double_conv(self.n_filters, self.n_filters)
+            self.dc3 = double_conv(self.n_filters, self.n_filters)
+            self.dc4 = double_conv(self.n_filters, self.n_filters)
+            self.dc4out = double_conv(self.n_filters, self.out_channels)
 
-            self.dc5 = double_conv(self.n_features*2, self.n_features)
-            self.dc5out = double_conv(self.n_features, self.n_classes)
+            self.dc5 = double_conv(self.n_filters*2, self.n_filters)
+            self.dc5out = double_conv(self.n_filters, self.out_channels)
 
-            self.dc6 = double_conv(self.n_features*2, self.n_features)
-            self.dc6out = double_conv(self.n_features, self.n_classes)
+            self.dc6 = double_conv(self.n_filters*2, self.n_filters)
+            self.dc6out = double_conv(self.n_filters, self.out_channels)
 
-            self.dc7 = double_conv(self.n_features*2, self.n_features)
+            self.dc7 = double_conv(self.n_filters*2, self.n_filters)
 
             self.ap = nn.AvgPool3d(2)
 
             self.up = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
 
-            self.out = nn.Conv3d(self.n_features, self.n_classes, kernel_size=1)
+            self.out = nn.Conv3d(self.n_filters, self.out_channels, kernel_size=1)
 
         def forward(self, x):
             x1 = self.dc1(x) # p 64, reso native z en 0.5
@@ -231,13 +231,11 @@ if __name__ == '__main__':
             x5 = self.dc5(x5)
             x5_out = self.dc5out(self.up(self.up(x5)))
 
-            x6 = self.up(x5)
-            x6 = torch.cat([x5,x2], dim=1)
+            x6 = torch.cat([self.up(x5),x2], dim=1)
             x6 = self.dc6(x6)
             x6_out = self.dc6out(self.up(x6))
 
-            x7 = self.up(x6)
-            x7 = torch.cat([x7,x1], dim=1)
+            x7 = torch.cat([self.up(x6),x1], dim=1)
             x7 = self.dc7(x7)
 
             return (self.out(x7), x6_out, x5_out, x4_out)
@@ -249,14 +247,14 @@ if __name__ == '__main__':
 
             self.in_channels = in_channels 
             self.out_channels = out_channels
-            self.n_features = n_filters
+            self.n_filters = n_filters
 
             #self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
             #self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
             #self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = n_layers)
-            self.net = Unet(n_channels = in_channels, n_classes = out_channels, n_features = n_filters)
+            self.net = Unet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters)
 
             self.save_hyperparameters()
 
@@ -279,9 +277,9 @@ if __name__ == '__main__':
             lr2 = patches_batch['lr2'][tio.DATA]
             lr1 = patches_batch['lr1'][tio.DATA]
 
-            (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05) = self(lr8)
+            (x7,x6,x5,x4) = self(lr8)
 
-            loss_recon = F.l1_loss(x_1_to_05,hr) + F.l1_loss(x_2_to_1,lr1) + F.l1_loss(x_4_to_2,lr2) + F.l1_loss(x_8_to_4,lr4)
+            loss_recon = F.l1_loss(x7,hr) + F.l1_loss(x6,hr) + F.l1_loss(x5,hr) + F.l1_loss(x4,hr) # decomp residuelle ou non ?
 
             return loss_recon
             
@@ -307,7 +305,7 @@ if __name__ == '__main__':
     if args.model is not None:
         model = Net.load_from_checkpoint(args.model)
     else:    
-        model = Net(n_layers=args.n_layers)
+        model = Net()
 
     logger = TensorBoardLogger(save_dir = saving_path)
     trainer = pl.Trainer(
