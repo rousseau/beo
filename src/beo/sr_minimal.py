@@ -40,7 +40,10 @@ if __name__ == '__main__':
     for hr_file in all_hr:
         subject = tio.Subject(
             hr=tio.ScalarImage(hr_file),
-            lr=tio.ScalarImage(hr_file),
+            lr8=tio.ScalarImage(hr_file),
+            lr4=tio.ScalarImage(hr_file),
+            lr2=tio.ScalarImage(hr_file),
+            lr1=tio.ScalarImage(hr_file),
         )
         subjects.append(subject) 
     print('Dataset size:', len(subjects), 'subjects')
@@ -55,13 +58,22 @@ if __name__ == '__main__':
     # resolution hr : 0.26 x 0.26 x 0.5
     # resolution lr : 0.56 x 0.56 x 4
     # resolution claire : 0.41 x 0.41 x 8
-    b1 = tio.Blur(std=(1,0.001,0.001), include='lr') #blur
-    d1 = tio.Resample((8,0.5,0.5), include='lr')     #downsampling
-    u1 = tio.Resample(target='hr', include='lr')     #upsampling
+    b8 = tio.Blur(std=(2,0.001,0.001), include='lr8') #blur
+    d8 = tio.Resample((8,0.5,0.5), include='lr8')     #downsampling
+    u8 = tio.Resample(target='hr', include='lr8')     #upsampling
+    b4 = tio.Blur(std=(1.5,0.001,0.001), include='lr4') #blur
+    d4 = tio.Resample((4,0.5,0.5), include='lr4')     #downsampling
+    u4 = tio.Resample(target='hr', include='lr4')     #upsampling
+    b2 = tio.Blur(std=(1,0.001,0.001), include='lr2') #blur
+    d2 = tio.Resample((2,0.5,0.5), include='lr2')     #downsampling
+    u2 = tio.Resample(target='hr', include='lr2')     #upsampling
+    b1 = tio.Blur(std=(1,0.001,0.001), include='lr1') #blur
+    d1 = tio.Resample((1,0.5,0.5), include='lr1')     #downsampling
+    u1 = tio.Resample(target='hr', include='lr1')     #upsampling
 
-    transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1]
+    transforms = [tocanonical, flip, spatial, normalization, b8, d8, u8, b4, d4, u4, b2, d2, u2, b1, d1, u1]
     training_transform = tio.Compose(transforms)
-    validation_transform = tio.Compose([tocanonical, normalization, b1, d1, u1])
+    validation_transform = tio.Compose([tocanonical, normalization, b8, d8, u8, b4, d4, u4, b2, d2, u2, b1, d1, u1])
 
     # SPLIT DATA
     seed = 42  # for reproducibility
@@ -163,24 +175,38 @@ if __name__ == '__main__':
         def __init__(self, in_channels = 1, out_channels = 1, n_filters = 32, activation = 'relu'):
             super(Net, self).__init__()
 
-            self.in_channels = in_channels
+            self.in_channels = in_channels 
             self.out_channels = out_channels
             self.n_features = n_filters
 
-            self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            #self.net = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net_8_to_4 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net_4_to_2 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net_2_to_1 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
+            self.net_1_to_05 = ResNet(in_channels = in_channels, out_channels = out_channels, n_filters = n_filters, n_layers = 10)
             self.save_hyperparameters()
 
         def forward(self, x):
-            return self.net(x)
+            #1, 2, 4, 8
+            x_8_to_4 = self.net_8_to_4(x)
+            x_4_to_2 = self.net_4_to_2(x_8_to_4)
+            x_2_to_1 = self.net_2_to_1(x_4_to_2)
+            x_1_to_05 = self.net_1_to_05(x_2_to_1)
+            #return self.net(x)
+            return (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05)
 
         def evaluate_batch(self, batch):
             patches_batch = batch
 
             hr = patches_batch['hr'][tio.DATA]
-            lr = patches_batch['lr'][tio.DATA]
+            lr8 = patches_batch['lr8'][tio.DATA]
+            lr4 = patches_batch['lr4'][tio.DATA]
+            lr2 = patches_batch['lr2'][tio.DATA]
+            lr1 = patches_batch['lr1'][tio.DATA]
 
-            rlr = self(lr)
-            loss_recon = F.l1_loss(rlr,hr)
+            (x_8_to_4,x_4_to_2,x_2_to_1,x_1_to_05) = self(lr8)
+
+            loss_recon = F.l1_loss(x_1_to_05,hr) + F.l1_loss(x_2_to_1,lr1) + F.l1_loss(x_4_to_2,lr2) + F.l1_loss(x_8_to_4,lr4)
 
             return loss_recon
             
@@ -247,12 +273,12 @@ if __name__ == '__main__':
 
         with torch.no_grad():
             for patches_batch in patch_loader:
-                lr = patches_batch['lr'][tio.DATA]
+                lr = patches_batch['lr8'][tio.DATA]
 
                 locations = patches_batch[tio.LOCATION]
 
                 lr = lr.to(device)
-                rlr = model(lr)
+                rlr,_ = model(lr)
 
                 aggregators['rlr'].add_batch(rlr.cpu(), locations)  
 
