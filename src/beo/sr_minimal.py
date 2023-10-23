@@ -32,6 +32,9 @@ if __name__ == '__main__':
     overlap_rate = args.overlap_patch_rate
 
     suffix = '_sr_e'+str(num_epochs)
+    suffix+= '_p'+str(patch_size)
+    suffix+= '_b'+str(batch_size)
+    suffix+= '_n'+str(args.n_layers)
     saving_path=os.path.join(args.saving_path,datetime.now().strftime("%d-%m-%Y_%H-%M-%S")+suffix)
     print(saving_path)
 
