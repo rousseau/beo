@@ -66,7 +66,7 @@ if __name__ == '__main__':
     # resolution claire : 0.41 x 0.41 x 8
     # test 1x1x2 (x4!)
     b1 = tio.Blur(std=(1,0.5,0.5), include='lr') #blur
-    d1 = tio.Resample((2,1,1), include='lr')     #downsampling
+    d1 = tio.Resample((4,0.5,0.5), include='lr')     #downsampling
     u1 = tio.Resample(target='hr', include='lr')     #upsampling
 
     transforms = [tocanonical, flip, spatial, normalization, b1, d1, u1]
