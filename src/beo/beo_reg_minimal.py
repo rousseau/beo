@@ -113,6 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--target', help='Target / Reference Image', type=str, required = True)
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
+    parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
     args = parser.parse_args()
 
@@ -138,3 +139,13 @@ if __name__ == '__main__':
 
     trainer_reg = pl.Trainer(max_epochs=args.epochs,accelerator="cpu")   
     trainer_reg.fit(reg_net, training_loader)  
+
+#%%
+    # Inference
+    inference_subject = resize(normalization(subjects[0]))
+    source_data = torch.unsqueeze(inference_subject.source.data,0)
+    target_data = torch.unsqueeze(inference_subject.target.data,0)    
+    warped_source = reg_net.forward(target_data,source_data)
+    print(warped_source.shape)
+    o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=inference_subject.source.affine)
+    o.save(args.output)
