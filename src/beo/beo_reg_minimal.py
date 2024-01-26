@@ -2,15 +2,14 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import nibabel
 
 import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-import monai
 import torchio as tio
+import monai
 
 # Net modules
     # code from voxelmorph repo
@@ -77,25 +76,35 @@ class VecInt(nn.Module):
             vec = vec + self.transformer(vec, vec)
         return vec
 
+
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape):  
+    def __init__(self, shape, int_steps = 7):  
         super().__init__()  
         self.shape = shape
-        self.unet = monai.networks.net.Unet(spatial_dims=3, in_channels=2, out_channels=3)
+        self.unet = monai.networks.nets.Unet(spatial_dims=3, in_channels=2, out_channels=3, channels=(8,16,32), strides=(2,2))
+        self.transformer = SpatialTransformer(size=shape)
+        self.int_steps = int_steps
+        self.vecint = VecInt(inshape=shape, nsteps=int_steps)
+        self.loss = nn.MSELoss()
 
-
-    def forward(self,source,target):
-        return 0
+    def forward(self,target,source):
+        x = torch.cat([target,source], dim=1)
+        forward_velocity = self.unet(x)
+        forward_flow = self.vecint(forward_velocity)
+        warped_source = self.transformer(source, forward_flow)
+        return warped_source
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
 
     def training_step(self, batch, batch_idx):
-        target, source = batch
-        loss = 0
-        return 0
+
+        target = batch['target'][tio.DATA]
+        source = batch['source'][tio.DATA]
+        warped_source = self(target,source)
+        return self.loss(target,warped_source)
 
 
 #%% Main program
@@ -103,6 +112,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Registration 3D Image Pair')
     parser.add_argument('-t', '--target', help='Target / Reference Image', type=str, required = True)
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
+    parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
 
     args = parser.parse_args()
 
@@ -113,7 +123,18 @@ if __name__ == '__main__':
     )
     subjects.append(subject) 
 
-    training_set = tio.SubjectsDataset(subjects)
+    normalization = tio.ZNormalization()
+    resize = tio.Resize(128)
+    transforms = [resize, normalization]
+    training_transform = tio.Compose(transforms)
+
+    training_set = tio.SubjectsDataset(subjects, transform=training_transform)
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
 #%%
-    print(subjects[0].target.shape)
+    # get the spatial dimension of the data (3D)
+    in_shape = resize(subjects[0]).target.shape[1:] 
+    reg_net = meta_registration_model(shape=in_shape)
+
+
+    trainer_reg = pl.Trainer(max_epochs=args.epochs,accelerator="cpu")   
+    trainer_reg.fit(reg_net, training_loader)  
