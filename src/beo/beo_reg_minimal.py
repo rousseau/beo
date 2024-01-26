@@ -142,10 +142,9 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-    inference_subject = resize(normalization(subjects[0]))
+    inference_subject = training_transform(subject)
     source_data = torch.unsqueeze(inference_subject.source.data,0)
     target_data = torch.unsqueeze(inference_subject.target.data,0)    
     warped_source = reg_net.forward(target_data,source_data)
-    print(warped_source.shape)
     o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=inference_subject.source.affine)
     o.save(args.output)
