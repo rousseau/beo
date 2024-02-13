@@ -9,9 +9,10 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 import torchio as tio
-import monai
-import math
 import numpy as np
+
+from beo_metrics import NCC
+from beo_svf import SpatialTransformer, VecInt
 
 # Net modules
 class Unet(nn.Module):
@@ -68,134 +69,6 @@ class Unet(nn.Module):
     x5 = self.dc5(x5)
     return self.out(x5)
 
-
-    # code from voxelmorph repo
-
-class NCC(nn.Module):
-  """
-  Local (over window) normalized cross correlation loss.
-  """
-
-  def __init__(self, win=None):
-    super().__init__()
-    self.win = win
-
-  def forward(self, y_true, y_pred):
-
-    Ii = y_true
-    Ji = y_pred
-
-    # get dimension of volume
-    # assumes Ii, Ji are sized [batch_size, *vol_shape, nb_feats]
-    ndims = len(list(Ii.size())) - 2
-    assert ndims in [1, 2, 3], "volumes should be 1 to 3 dimensions. found: %d" % ndims
-
-    # set window size
-    win = [9] * ndims if self.win is None else self.win
-
-    # compute filters
-    sum_filt = torch.ones([1, 1, *win]).to("cuda")
-
-    pad_no = math.floor(win[0] / 2)
-
-    if ndims == 1:
-      stride = (1)
-      padding = (pad_no)
-    elif ndims == 2:
-      stride = (1, 1)
-      padding = (pad_no, pad_no)
-    else:
-      stride = (1, 1, 1)
-      padding = (pad_no, pad_no, pad_no)
-
-    # get convolution function
-    conv_fn = getattr(F, 'conv%dd' % ndims)
-
-    # compute CC squares
-    I2 = Ii * Ii
-    J2 = Ji * Ji
-    IJ = Ii * Ji
-
-    I_sum = conv_fn(Ii, sum_filt, stride=stride, padding=padding)
-    J_sum = conv_fn(Ji, sum_filt, stride=stride, padding=padding)
-    I2_sum = conv_fn(I2, sum_filt, stride=stride, padding=padding)
-    J2_sum = conv_fn(J2, sum_filt, stride=stride, padding=padding)
-    IJ_sum = conv_fn(IJ, sum_filt, stride=stride, padding=padding)
-
-    win_size = np.prod(win)
-    u_I = I_sum / win_size
-    u_J = J_sum / win_size
-
-    cross = IJ_sum - u_J * I_sum - u_I * J_sum + u_I * u_J * win_size
-    I_var = I2_sum - 2 * u_I * I_sum + u_I * u_I * win_size
-    J_var = J2_sum - 2 * u_J * J_sum + u_J * u_J * win_size
-
-    cc = cross * cross / (I_var * J_var + 1e-5)
-
-    return -torch.mean(cc)
-
-class SpatialTransformer(nn.Module):
-    """
-    N-D Spatial Transformer
-    """
-
-    def __init__(self, size, mode='bilinear'):
-        super().__init__()
-
-        self.mode = mode
-
-        # create sampling grid
-        vectors = [torch.arange(0, s) for s in size]
-        grids = torch.meshgrid(vectors)
-        grid = torch.stack(grids)
-        grid = torch.unsqueeze(grid, 0)
-        grid = grid.type(torch.FloatTensor)
-
-        # registering the grid as a buffer cleanly moves it to the GPU, but it also
-        # adds it to the state dict. this is annoying since everything in the state dict
-        # is included when saving weights to disk, so the model files are way bigger
-        # than they need to be. so far, there does not appear to be an elegant solution.
-        # see: https://discuss.pytorch.org/t/how-to-register-buffer-without-polluting-state-dict
-        self.register_buffer('grid', grid)
-
-    def forward(self, src, flow):
-        # new locations
-        new_locs = self.grid + flow
-        shape = flow.shape[2:]
-
-        # need to normalize grid values to [-1, 1] for resampler
-        for i in range(len(shape)):
-            new_locs[:, i, ...] = 2 * (new_locs[:, i, ...] / (shape[i] - 1) - 0.5)
-
-        # move channels dim to last position
-        if len(shape) == 2:
-            new_locs = new_locs.permute(0, 2, 3, 1)
-            new_locs = new_locs[..., [1, 0]]
-        elif len(shape) == 3:
-            new_locs = new_locs.permute(0, 2, 3, 4, 1)
-            new_locs = new_locs[..., [2, 1, 0]]
-
-        return F.grid_sample(src, new_locs, align_corners=True, mode=self.mode)  
-
-#from voxelmorph repo
-class VecInt(nn.Module):
-    """
-    Integrates a vector field via scaling and squaring.
-    """
-
-    def __init__(self, inshape, nsteps):
-        super().__init__()
-
-        assert nsteps >= 0, 'nsteps should be >= 0, found: %d' % nsteps
-        self.nsteps = nsteps
-        self.scale = 1.0 / (2 ** self.nsteps)
-        self.transformer = SpatialTransformer(inshape)
-
-    def forward(self, vec):
-        vec = vec * self.scale
-        for _ in range(self.nsteps):
-            vec = vec + self.transformer(vec, vec)
-        return vec
 
 
 #%% Lightning module
