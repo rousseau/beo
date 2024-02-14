@@ -98,6 +98,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Registration 3D Longitudinaal Images')
     parser.add_argument('-f', '--filename', help='Text file containing list of nifti files and corresponding age', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
+    parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='mse')
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
     args = parser.parse_args()
@@ -110,8 +111,11 @@ if __name__ == '__main__':
     # 26 : 0.1
     # 35 : 1
     # ax+b -> a=1/10, b=-25/10
-    a = 1/10
-    b = -25/10
+    # 25 : 0
+    # 29 : 1
+    # ax+b -> a=1/4, b=-25/4
+    a = 1/4
+    b = -25/4
 
     subjects = []
     for index, row in df.iterrows():
@@ -132,21 +136,25 @@ if __name__ == '__main__':
 #%%
     # get the spatial dimension of the data (3D)
     in_shape = subjects[0].image.shape[1:]     
-    reg_net = meta_registration_model(shape=in_shape)
+    reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
 
     trainer_reg = pl.Trainer(max_epochs=args.epochs, logger=False, enable_checkpointing=False)   
     trainer_reg.fit(reg_net, training_loader)  
 
+    trainer_reg.save_checkpoint('model.ckpt')
 #%%
     # Inference
-    source_subject = training_set[4] #25
-    target_subject = training_set[14] #35    
+    source_subject = training_set[0] #25
     source_data = torch.unsqueeze(source_subject.image.data,0)
-    target_data = torch.unsqueeze(target_subject.image.data,0)  
-    weight = target_subject.age - source_subject.age 
-    warped_source,warped_target = reg_net.forward(source_data,target_data, weight)
-    o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image.affine)
-    o.save(args.output)
+    for i in range(4):
+        target_subject = training_set[i+1] #39    
+        #source_subject = training_set[4] #25
+        #target_subject = training_set[14] #35    
+        target_data = torch.unsqueeze(target_subject.image.data,0)  
+        weight = target_subject.age - source_subject.age 
+        warped_source,warped_target = reg_net.forward(source_data,target_data, weight)
+        o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image.affine)
+        o.save('svf_'+str(i+1)+'.nii.gz')
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
