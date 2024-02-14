@@ -65,6 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--target', help='Target / Reference Image', type=str, required = True)
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
+    parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=string, required = False, default='mse')
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
     args = parser.parse_args()
@@ -88,7 +89,7 @@ if __name__ == '__main__':
     # get the spatial dimension of the data (3D)
     #in_shape = resize(subjects[0]).target.shape[1:] 
     in_shape = subjects[0].target.shape[1:]     
-    reg_net = meta_registration_model(shape=in_shape)
+    reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
 
 
     trainer_reg = pl.Trainer(max_epochs=args.epochs, logger=False, enable_checkpointing=False)   
