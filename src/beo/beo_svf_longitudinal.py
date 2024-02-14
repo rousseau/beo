@@ -12,6 +12,8 @@ import pytorch_lightning as pl
 
 from beo_svf import SpatialTransformer, VecInt
 from beo_nets import Unet
+from beo_metrics import NCC
+import monai
 
 class RandomPairDataset(Dataset):
     """
@@ -32,12 +34,20 @@ class RandomPairDataset(Dataset):
         idx1, idx2 = torch.randint(0, len(self.dataset), (2,))        
         idx1, idx2 = idx1.item(), idx2.item()
 
+        # idx1 : target. On fixe la target à être le dernier élément
+        #idx1 = len(self.dataset) - 1
+
+        # idx2 : source. On fixe la source à être le premier élément
+        idx2 = 0
+
         # Ensure unique indices (no duplicates in a pair)
         if idx1 == idx2:
             if idx1 == len(self.dataset) - 1:
                 idx2 -= 1
             else:
                 idx1 += 1
+
+        #print(idx1,idx2)
 
         # Fetch data from the original dataset
         sample1 = self.dataset[idx1]
@@ -89,6 +99,7 @@ class meta_registration_model(pl.LightningModule):
         target = sample1['image'][tio.DATA]
         source = sample2['image'][tio.DATA]
         weight = sample1['age'].float() - sample2['age'].float()
+        #print(weight)
         warped_source, warped_target = self(source,target,weight)
         return self.loss(target,warped_source) + self.loss(source,warped_target)
 
@@ -141,7 +152,7 @@ if __name__ == '__main__':
     trainer_reg = pl.Trainer(max_epochs=args.epochs, logger=False, enable_checkpointing=False)   
     trainer_reg.fit(reg_net, training_loader)  
 
-    trainer_reg.save_checkpoint('model.ckpt')
+    #trainer_reg.save_checkpoint('model.ckpt')
 #%%
     # Inference
     source_subject = training_set[0] #25
@@ -154,7 +165,7 @@ if __name__ == '__main__':
         weight = target_subject.age - source_subject.age 
         warped_source,warped_target = reg_net.forward(source_data,target_data, weight)
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image.affine)
-        o.save('svf_'+str(i+1)+'.nii.gz')
+        o.save(args.output+'_svf_'+str(i+1)+'_'+args.loss+'_e'+str(args.epochs)+'.nii.gz')
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
