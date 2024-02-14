@@ -65,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--target', help='Target / Reference Image', type=str, required = True)
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
-    parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=string, required = False, default='mse')
+    parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='mse')
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
     args = parser.parse_args()
