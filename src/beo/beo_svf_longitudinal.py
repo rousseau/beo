@@ -34,8 +34,8 @@ class CustomRandomDataset(Dataset):
         return math.comb(len(self.dataset),3) # the number of unique triplets
 
     def __getitem__(self, idx):
-        #random_indices = random.sample(range(0, len(self.dataset)), 3)
-        random_indices = range(0, len(self.dataset))
+        random_indices = random.sample(range(0, len(self.dataset)), 3)
+        #random_indices = range(0, len(self.dataset))
         return [self.dataset[i] for i in random_indices]    
     
 
@@ -93,13 +93,21 @@ class meta_registration_model(pl.LightningModule):
         #print(w12, w13)
 
         # constraint for linear modeling for svf
-        flow13 = self.vecint(w13/w12*svf12)
-        flow12 = self.vecint(w12/w13*svf13)
+        csvf13 = w13/w12*svf12
+        csvf31 = -csvf13
+        flow13 = self.vecint(csvf13)
+        flow31 = self.vecint(csvf31)
+
+        csvf12 = w12/w13*svf13
+        csvf21 = -csvf12
+        flow12 = self.vecint(csvf12)
+        flow21 = self.vecint(csvf21)
 
         loss12 = self.loss(sample2['image'][tio.DATA],self.transformer(sample1['image'][tio.DATA], flow12))
         loss13 = self.loss(sample3['image'][tio.DATA],self.transformer(sample1['image'][tio.DATA], flow13))
-
-        return loss12 + loss13
+        loss21 = self.loss(sample1['image'][tio.DATA],self.transformer(sample2['image'][tio.DATA], flow21))
+        loss31 = self.loss(sample1['image'][tio.DATA],self.transformer(sample3['image'][tio.DATA], flow31))
+        return loss12 + loss13 + loss21 + loss31
 
 
 #%% Main program
@@ -110,21 +118,24 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='ncc')
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
+    parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
+    parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
+
+    parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
+    parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=29)
+
     args = parser.parse_args()
 
     df = pd.read_csv(args.filename, names=["nifti", "age"], sep=" ", dtype={"scalar": float})
     print(df)
 
-    # Convert age to [0,1] SVF interval
-    # 25 : 0
-    # 26 : 0.1
-    # 35 : 1
-    # ax+b -> a=1/10, b=-25/10
-    # 25 : 0
-    # 29 : 1
+    # Convert linearly age to [0,1] SVF interval
+    # Example
+    # t0 25 : 0
+    # t1 29 : 1
     # ax+b -> a=1/4, b=-25/4
-    a = 1/4
-    b = -25/4
+    a = 1/(args.t1-args.t0)
+    b = -args.t0/(args.t1-args.t0)
 
     subjects = []
     for index, row in df.iterrows():
@@ -138,7 +149,9 @@ if __name__ == '__main__':
     transforms = [normalization]
     training_transform = tio.Compose(transforms)
 
-    training_set = tio.SubjectsDataset(subjects, transform=training_transform)
+    #training_set = tio.SubjectsDataset(subjects, transform=training_transform)
+    training_set = tio.SubjectsDataset(subjects)    
+
     torch_dataset = CustomRandomDataset(training_set)
     training_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=1, shuffle=True)
 
@@ -146,6 +159,8 @@ if __name__ == '__main__':
     # get the spatial dimension of the data (3D)
     in_shape = subjects[0].image.shape[1:]     
     reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
+    if args.load_unet:
+        reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
 #%%
     trainer_reg = pl.Trainer(
@@ -154,22 +169,27 @@ if __name__ == '__main__':
         logger=False, 
         enable_checkpointing=False)   
     trainer_reg.fit(reg_net, training_loader)  
+    if args.save_unet:
+        torch.save(reg_net.unet.state_dict(), args.save_unet)
 
     #trainer_reg.save_checkpoint('model.ckpt')
 #%%
     # Inference
-    source_subject = training_set[0] #25
-    source_data = torch.unsqueeze(source_subject.image.data,0)
-    for i in range(4):
-        target_subject = training_set[i+1] #39    
-        #source_subject = training_set[4] #25
-        #target_subject = training_set[14] #35    
+
+    # Find initial template, i.e. the one for t0
+    for s in subjects:
+        if s.age == 0:
+            template_t0 = s
+            break    
+
+    source_data = torch.unsqueeze(template_t0.image.data,0)
+    for i in range(len(subjects)):
+        target_subject = training_set[i]     
         target_data = torch.unsqueeze(target_subject.image.data,0)  
-        weight = target_subject.age - source_subject.age 
+        weight = target_subject.age - template_t0.age 
         svf = reg_net(source_data,target_data)
-        flow = reg_net.vecint(svf)
+        flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
-        #warped_source,warped_target = reg_net.forward(source_data,target_data, weight)
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image.affine)
         o.save(args.output+'_svf_'+str(i+1)+'_'+args.loss+'_e'+str(args.epochs)+'.nii.gz')
 
