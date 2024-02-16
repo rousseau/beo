@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 import pytorch_lightning as pl
+from pytorch_lightning.strategies.ddp import DDPStrategy
 
 import torchio as tio
 import numpy as np
@@ -68,6 +69,9 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='mse')
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
+    parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
+    parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
+
     args = parser.parse_args()
 
     subjects = []
@@ -90,14 +94,18 @@ if __name__ == '__main__':
     #in_shape = resize(subjects[0]).target.shape[1:] 
     in_shape = subjects[0].target.shape[1:]     
     reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
-
+    if args.load_unet:
+        reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
     trainer_reg = pl.Trainer(
         max_epochs=args.epochs, 
         strategy = DDPStrategy(find_unused_parameters=True),
         logger=False, 
         enable_checkpointing=False)  
+    
     trainer_reg.fit(reg_net, training_loader)  
+    if args.save_unet:
+        torch.save(reg_net.unet.state_dict(), args.save_unet)
 
 #%%
     # Inference
