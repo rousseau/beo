@@ -34,8 +34,10 @@ class CustomRandomDataset(Dataset):
         return math.comb(len(self.dataset),3) # the number of unique triplets
 
     def __getitem__(self, idx):
-        random_indices = random.sample(range(0, len(self.dataset)), 3)
+        #random_indices = random.sample(range(0, len(self.dataset)), 3)
+        random_indices = range(0, len(self.dataset))
         return [self.dataset[i] for i in random_indices]    
+    
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
@@ -78,6 +80,8 @@ class meta_registration_model(pl.LightningModule):
 
         sample1, sample2, sample3 = batch
 
+        #print(sample1['age'].float(),sample2['age'].float(),sample3['age'].float())
+
         # sample 1 (source) registered on sample 2 (target)
         svf12 = self(sample1['image'][tio.DATA],sample2['image'][tio.DATA])
         w12 = sample2['age'].float() - sample1['age'].float()        
@@ -85,6 +89,8 @@ class meta_registration_model(pl.LightningModule):
         # sample 1 (source) registered on sample 3 (target)
         svf13 = self(sample1['image'][tio.DATA],sample3['image'][tio.DATA])
         w13 = sample3['age'].float() - sample1['age'].float()        
+
+        #print(w12, w13)
 
         # constraint for linear modeling for svf
         flow13 = self.vecint(w13/w12*svf12)
