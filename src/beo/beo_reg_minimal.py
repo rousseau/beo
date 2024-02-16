@@ -92,7 +92,11 @@ if __name__ == '__main__':
     reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
 
 
-    trainer_reg = pl.Trainer(max_epochs=args.epochs, logger=False, enable_checkpointing=False)   
+    trainer_reg = pl.Trainer(
+        max_epochs=args.epochs, 
+        strategy = DDPStrategy(find_unused_parameters=True),
+        logger=False, 
+        enable_checkpointing=False)  
     trainer_reg.fit(reg_net, training_loader)  
 
 #%%
