@@ -84,10 +84,11 @@ if __name__ == '__main__':
     normalization = tio.ZNormalization()
     #resize = tio.Resize(128)
     #transforms = [resize, normalization]
-    transforms = [normalization]
-    training_transform = tio.Compose(transforms)
+    #transforms = [normalization]
+    #training_transform = tio.Compose(transforms)
 
-    training_set = tio.SubjectsDataset(subjects, transform=training_transform)
+    #training_set = tio.SubjectsDataset(subjects, transform=training_transform)
+    training_set = tio.SubjectsDataset(subjects)    
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
 #%%
     # get the spatial dimension of the data (3D)
@@ -109,7 +110,8 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-    inference_subject = training_transform(subject)
+    #inference_subject = training_transform(subject)
+    inference_subject = subject
     source_data = torch.unsqueeze(inference_subject.source.data,0)
     target_data = torch.unsqueeze(inference_subject.target.data,0)    
     warped_source,warped_target = reg_net.forward(source_data,target_data)
