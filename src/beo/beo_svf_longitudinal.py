@@ -31,12 +31,26 @@ class CustomRandomDataset(Dataset):
         self.dataset = dataset
 
     def __len__(self):
-        return math.comb(len(self.dataset),3) # the number of unique triplets
+        #return math.comb(len(self.dataset),3) # the number of unique triplets
+        return len(self.dataset)-2 # the number of triplets with two anchor points
 
     def __getitem__(self, idx):
-        random_indices = random.sample(range(0, len(self.dataset)), 3)
-        #random_indices = range(0, len(self.dataset))
-        return [self.dataset[i] for i in random_indices]    
+        #random_indices = random.sample(range(0, len(self.dataset)), 3)
+        indice_t0 = 0
+        indice_t1 = 0
+        for d in range(len(self.dataset)):
+            if self.dataset[d]['age'] == 0:
+                indice_t0 = d
+            if self.dataset[d]['age'] == 1:
+                indice_t1 = d
+
+        indice_random = random.randint(0, len(self.dataset)-1)
+        if indice_random == indice_t0 or indice_random == indice_t1:
+            indice_random = (indice_random + 1) % len(self.dataset)
+
+        anchors = [indice_t0, indice_t1, indice_random]     
+        return [self.dataset[i] for i in anchors]
+        #return [self.dataset[i] for i in random_indices]    
     
 
 #%% Lightning module
@@ -92,13 +106,19 @@ class meta_registration_model(pl.LightningModule):
 
         #print(w12, w13)
 
-        # constraint for linear modeling for svf
-        csvf13 = w13/w12*svf12
+        # constraint for linear modeling for svf using random anchors
+        #csvf13 = w13/w12*svf12
+        #csvf12 = w12/w13*svf13
+
+        # constraint for linear modeling using fixed chosen anchors
+        csvf12 = svf12
+        csvf13 = w13*svf12
+
+
         csvf31 = -csvf13
         flow13 = self.vecint(csvf13)
         flow31 = self.vecint(csvf31)
 
-        csvf12 = w12/w13*svf13
         csvf21 = -csvf12
         flow12 = self.vecint(csvf12)
         flow21 = self.vecint(csvf21)
