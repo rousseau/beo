@@ -19,6 +19,7 @@ from beo_metrics import NCC
 import monai
 import torchio as tio
 
+
 class CustomDataset(Dataset):
     def __init__(self, dataset):
         self.dataset = dataset
@@ -46,7 +47,9 @@ class meta_registration_model(pl.LightningModule):
         elif loss == 'ncc':                 
             self.loss = NCC()
         elif loss == 'lncc':
-            self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()    
+            self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()  
+
+        self.loss_seg = monai.losses.DiceCELoss(softmax=True)      
 
     def forward(self,source,target):
         x = torch.cat([source,target], dim=1)
@@ -66,11 +69,28 @@ class meta_registration_model(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        subject1, subject2 = batch
-        target = subject1['image'][tio.DATA]
-        source = subject2['image'][tio.DATA]
-        warped_source, warped_target = self(source,target)
-        return self.loss(target,warped_source) + self.loss(source,warped_target)
+        tio_target, tio_source = batch
+        target = tio_target['image'][tio.DATA]
+        source = tio_source['image'][tio.DATA]
+        
+        #warped_source, warped_target = self(source,target)
+        x = torch.cat([source,target], dim=1)
+
+        forward_velocity = self.unet(x)
+        forward_flow = self.vecint(forward_velocity)
+        warped_source = self.transformer(source, forward_flow)
+
+        backward_velocity = - forward_velocity
+        backward_flow = self.vecint(backward_velocity)
+        warped_target = self.transformer(target, backward_flow)
+
+        warped_source_label = self.transformer(tio_source['label'][tio.DATA], forward_flow)
+        warped_target_label = self.transformer(tio_target['label'][tio.DATA], backward_flow)
+
+        loss_img = self.loss(target,warped_source) + self.loss(source,warped_target)
+        loss_seg = self.loss_seg(warped_source_label, tio_target['label'][tio.DATA]) + self.loss_seg(warped_target_label, tio_source['label'][tio.DATA])
+
+        return loss_img + loss_seg
 
 
 #%% Main program
@@ -107,13 +127,18 @@ if __name__ == '__main__':
     normalization = tio.ZNormalization(masking_method='mask')    
     croporpad =tio.transforms.CropOrPad(mask_name='label')
     resize = tio.Resize(args.size)
-    transforms = [masking,normalization,croporpad,resize]
+    onehot = tio.OneHot(include=('label'))
+    transforms = [masking,normalization,croporpad,resize,onehot]
     training_transform = tio.Compose(transforms)
 
     training_set = tio.SubjectsDataset(subjects, transform=training_transform)
 
     torch_dataset = CustomDataset(training_set)
-    training_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=args.batch_size, shuffle=True)
+    training_loader = torch.utils.data.DataLoader(torch_dataset, 
+                                                  batch_size=args.batch_size, 
+                                                  shuffle=True,
+                                                  num_workers=8,
+                                                  pin_memory=True)
 
 #%%
     # get the spatial dimension of the data (3D)
@@ -128,7 +153,8 @@ if __name__ == '__main__':
         strategy = DDPStrategy(find_unused_parameters=True),
         logger=False, 
         enable_checkpointing=False,
-        precision=16)   
+        precision='16-mixed',
+        accumulate_grad_batches=8)   
     trainer_reg.fit(reg_net, training_loader)  
 
     if args.save_unet:
