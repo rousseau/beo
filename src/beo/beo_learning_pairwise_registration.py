@@ -9,6 +9,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset
 import pytorch_lightning as pl
 from pytorch_lightning.strategies.ddp import DDPStrategy
+from pytorch_lightning.loggers import TensorBoardLogger
 
 import random
 
@@ -35,7 +36,7 @@ class CustomDataset(Dataset):
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape, int_steps = 7, loss='ncc'):  
+    def __init__(self, shape, int_steps = 7, loss='ncc', loss_seg=None):  
         super().__init__()  
         self.shape = shape
         self.unet = Unet(n_channels = 2, n_classes = 3, n_features = 32)
@@ -49,7 +50,10 @@ class meta_registration_model(pl.LightningModule):
         elif loss == 'lncc':
             self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()  
 
-        self.loss_seg = monai.losses.DiceCELoss(softmax=True)      
+        if loss_seg:
+            self.loss_seg = monai.losses.DiceCELoss(softmax=True)      
+        else:
+            self.loss_seg = None    
 
     def forward(self,source,target):
         x = torch.cat([source,target], dim=1)
@@ -74,6 +78,7 @@ class meta_registration_model(pl.LightningModule):
         source = tio_source['image'][tio.DATA]
         
         #warped_source, warped_target = self(source,target)
+
         x = torch.cat([source,target], dim=1)
 
         forward_velocity = self.unet(x)
@@ -84,13 +89,22 @@ class meta_registration_model(pl.LightningModule):
         backward_flow = self.vecint(backward_velocity)
         warped_target = self.transformer(target, backward_flow)
 
-        warped_source_label = self.transformer(tio_source['label'][tio.DATA], forward_flow)
-        warped_target_label = self.transformer(tio_target['label'][tio.DATA], backward_flow)
-
         loss_img = self.loss(target,warped_source) + self.loss(source,warped_target)
-        loss_seg = self.loss_seg(warped_source_label, tio_target['label'][tio.DATA]) + self.loss_seg(warped_target_label, tio_source['label'][tio.DATA])
+        self.log("train_loss_img", loss_img, prog_bar=True, on_epoch=True)
+        
+        loss = loss_img
 
-        return loss_img + loss_seg
+        if self.loss_seg is not None:
+            warped_source_label = self.transformer(tio_source['label'][tio.DATA], forward_flow)
+            warped_target_label = self.transformer(tio_target['label'][tio.DATA], backward_flow)
+
+            loss_seg = self.loss_seg(warped_source_label, tio_target['label'][tio.DATA]) + self.loss_seg(warped_target_label, tio_source['label'][tio.DATA])
+
+        
+            self.log("train_loss_seg", loss_seg, prog_bar=True, on_epoch=True)
+            loss+=loss_seg
+
+        return loss
 
 
 #%% Main program
@@ -105,9 +119,9 @@ if __name__ == '__main__':
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = True)
 
     parser.add_argument('--size', help='Image size', type=int, required = False, default=256)
+    parser.add_argument('--seg_loss', help='Use segmentation loss', type=str, required = False, default=None)
 
     args = parser.parse_args()
-
 
     df = pd.read_csv(args.tsv_file, sep='\t')
 
@@ -143,18 +157,21 @@ if __name__ == '__main__':
 #%%
     # get the spatial dimension of the data (3D)
     in_shape = (args.size, args.size, args.size)     
-    reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
+    reg_net = meta_registration_model(shape=in_shape, loss=args.loss, loss_seg=args.seg_loss)
     if args.load_unet:
         reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
 #%%
+    tb_logger = TensorBoardLogger("lightning_logs", name="reg_unet")
+
+
     trainer_reg = pl.Trainer(
         max_epochs=args.epochs, 
         strategy = DDPStrategy(find_unused_parameters=True),
-        logger=False, 
-        enable_checkpointing=False,
         precision='16-mixed',
-        accumulate_grad_batches=8)   
+        accumulate_grad_batches=8,
+        logger=tb_logger)   
+    
     trainer_reg.fit(reg_net, training_loader)  
 
     if args.save_unet:
