@@ -28,7 +28,6 @@ class CustomDataset(Dataset):
     def __getitem__(self, index):
         # Pick two different random indices
         idx1, idx2 = random.sample(range(len(self.dataset)), 2)
-
         return self.dataset[idx1],self.dataset[idx2]
 
     def __len__(self):
@@ -49,6 +48,8 @@ class meta_registration_model(pl.LightningModule):
             self.loss = NCC()
         elif loss == 'lncc':
             self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()  
+        elif loss == 'mi':
+            self.loss = monai.losses.GlobalMutualInformationLoss(num_bins=32)    
 
         if loss_seg == 1:
             self.loss_seg = monai.losses.DiceCELoss(softmax=True)      
@@ -121,6 +122,9 @@ if __name__ == '__main__':
     parser.add_argument('--size', help='Image size', type=int, required = False, default=256)
     parser.add_argument('--seg_loss', help='Use segmentation loss', type=int, required = False, default=0)
 
+    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=8)
+
+
     args = parser.parse_args()
 
     df = pd.read_csv(args.tsv_file, sep='\t')
@@ -151,7 +155,7 @@ if __name__ == '__main__':
     training_loader = torch.utils.data.DataLoader(torch_dataset, 
                                                   batch_size=args.batch_size, 
                                                   shuffle=True,
-                                                  num_workers=8,
+                                                  num_workers=16,
                                                   pin_memory=True)
 
 #%%
@@ -161,6 +165,7 @@ if __name__ == '__main__':
     if args.load_unet:
         reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
+
 #%%
     tb_logger = TensorBoardLogger("lightning_logs", name="reg_unet")
 
@@ -168,8 +173,8 @@ if __name__ == '__main__':
     trainer_reg = pl.Trainer(
         max_epochs=args.epochs, 
         strategy = DDPStrategy(find_unused_parameters=True),
-        precision='16-mixed',
-        accumulate_grad_batches=8,
+        #precision='16-mixed',
+        accumulate_grad_batches=args.accumulate_grad_batches,
         logger=tb_logger)   
     
     trainer_reg.fit(reg_net, training_loader)  
