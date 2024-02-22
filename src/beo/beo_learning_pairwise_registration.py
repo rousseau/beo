@@ -36,7 +36,7 @@ class CustomDataset(Dataset):
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape, int_steps = 7, loss='ncc', loss_seg=None):  
+    def __init__(self, shape, int_steps = 7, loss='ncc', loss_seg=0):  
         super().__init__()  
         self.shape = shape
         self.unet = Unet(n_channels = 2, n_classes = 3, n_features = 32)
@@ -50,7 +50,7 @@ class meta_registration_model(pl.LightningModule):
         elif loss == 'lncc':
             self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()  
 
-        if loss_seg:
+        if loss_seg == 1:
             self.loss_seg = monai.losses.DiceCELoss(softmax=True)      
         else:
             self.loss_seg = None    
@@ -119,7 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = True)
 
     parser.add_argument('--size', help='Image size', type=int, required = False, default=256)
-    parser.add_argument('--seg_loss', help='Use segmentation loss', type=str, required = False, default=None)
+    parser.add_argument('--seg_loss', help='Use segmentation loss', type=int, required = False, default=0)
 
     args = parser.parse_args()
 
