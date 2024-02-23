@@ -15,11 +15,11 @@ if __name__ == '__main__':
 
     parser.add_argument('--rescale', help='Rescale intensity', action='store_true')
     parser.add_argument('--normalization', help='Z normalization', action='store_true')
-    parser.add_argument('--masking', help='Mask', action='store_true')
-    parser.add_argument('--croporpad', help='Crop or pad', type=int, required=False, default=0)
+    parser.add_argument('--masking', help='Apply Mask', action='store_true')
+    parser.add_argument('--croporpad', help='Image size for Crop or pad', type=int, required=False, default=0)
     parser.add_argument('--canonical', help='To canonical', action='store_true')
-    parser.add_argument('--resample', help='Resample', type=float, required=False, default=0)
-    parser.add_argument('--resize', help='Resize', type=float, required=False, default=0)
+    parser.add_argument('--resample', help='Voxel size for Resample', type=float, required=False, default=0)
+    parser.add_argument('--resize', help='Image size for Resize', type=float, required=False, default=0)
 
     args = parser.parse_args()
     print(args)
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     if args.masking:    
         transforms.append(tio.transforms.Mask(masking_method='mask'))
     if args.resample > 0:
-        transforms.append(tio.transforms.Resample(args.resample,image_interpolation = 'bspline'))
+        transforms.append(tio.transforms.Resample(args.resample,image_interpolation = 'bspline')) # or linear for zero background
     if args.resize > 0:
         transforms.append(tio.transforms.Resize(args.resize,image_interpolation = 'bspline'))
     if args.croporpad > 0:
