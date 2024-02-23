@@ -6,6 +6,7 @@ import pandas as pd
 
 import torch
 import torch.nn as nn 
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 import pytorch_lightning as pl
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -56,6 +57,8 @@ class meta_registration_model(pl.LightningModule):
         else:
             self.loss_seg = None    
 
+        self.lambda_magn_velocity  = 0.01
+
     def forward(self,source,target):
         x = torch.cat([source,target], dim=1)
         forward_velocity = self.unet(x)
@@ -92,7 +95,7 @@ class meta_registration_model(pl.LightningModule):
 
         loss_img = self.loss(target,warped_source) + self.loss(source,warped_target)
         self.log("train_loss_img", loss_img, prog_bar=True, on_epoch=True)
-        
+
         loss = loss_img
 
         if self.loss_seg is not None:
@@ -100,10 +103,13 @@ class meta_registration_model(pl.LightningModule):
             warped_target_label = self.transformer(tio_target['label'][tio.DATA], backward_flow)
 
             loss_seg = self.loss_seg(warped_source_label, tio_target['label'][tio.DATA]) + self.loss_seg(warped_target_label, tio_source['label'][tio.DATA])
-
         
             self.log("train_loss_seg", loss_seg, prog_bar=True, on_epoch=True)
             loss+=loss_seg
+
+        if self.lambda_magn_velocity > 0:  
+            loss += self.lambda_magn_velocity * F.mse_loss(torch.zeros(forward_velocity.shape,device=self.device),forward_velocity)  
+
 
         return loss
 
