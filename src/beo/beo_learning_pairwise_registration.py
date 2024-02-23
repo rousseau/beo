@@ -147,12 +147,12 @@ if __name__ == '__main__':
 
     print(len(subjects))
 
-    masking = tio.Mask(masking_method='mask')
     normalization = tio.ZNormalization(masking_method='mask')    
+    masking = tio.Mask(masking_method='mask')
     croporpad =tio.transforms.CropOrPad(mask_name='label')
     resize = tio.Resize(args.size)
     onehot = tio.OneHot(include=('label'))
-    transforms = [masking,normalization,croporpad,resize,onehot]
+    transforms = [normalization,masking,croporpad,resize,onehot]
     training_transform = tio.Compose(transforms)
 
     training_set = tio.SubjectsDataset(subjects, transform=training_transform)
