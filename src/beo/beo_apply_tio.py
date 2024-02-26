@@ -39,10 +39,12 @@ if __name__ == '__main__':
     transforms = []
 
     if args.rescale:
-        if args.masking:
-            transforms.append(tio.transforms.RescaleIntensity(masking_method='mask'))
-        else:    
-            transforms.append(tio.transforms.RescaleIntensity())
+        #if args.masking:
+        #    transforms.append(tio.transforms.RescaleIntensity(masking_method='mask'))
+        #else:    
+        transforms.append(tio.transforms.RescaleIntensity(percentiles=(0.1, 99.9)))
+        transforms.append(tio.transforms.Clamp(out_min=0, out_max=1))
+
     if args.normalization:
         if args.masking:
             transforms.append(tio.transforms.ZNormalization(masking_method='mask'))
@@ -59,6 +61,7 @@ if __name__ == '__main__':
     if args.canonical:
         transforms.append(tio.transforms.ToCanonical())
                           
+    print(transforms)
     composed_transforms = tio.Compose(transforms)
     output_subject = composed_transforms(subject)
 
