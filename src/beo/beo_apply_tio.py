@@ -11,6 +11,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output_image', help='Output nifti image ', type=str, required = True)
 
     parser.add_argument('-m', '--mask', help='Mask nifti image ', type=str, required = False)
+    parser.add_argument('--output_mask', help='Output nifti mask image ', type=str, required = False)
+
     parser.add_argument('-l', '--label', help='Label nifti image ', type=str, required = False)
 
     parser.add_argument('--rescale', help='Rescale intensity', action='store_true')
@@ -65,4 +67,7 @@ if __name__ == '__main__':
     composed_transforms = tio.Compose(transforms)
     output_subject = composed_transforms(subject)
 
-    output_subject.image.save(args.output_image)    
+    output_subject.image.save(args.output_image) 
+       
+    if args.output_mask is not None:
+        output_subject.mask.save(args.output_mask)    
