@@ -81,18 +81,10 @@ if __name__ == '__main__':
     )
     subjects.append(subject) 
 
-    normalization = tio.ZNormalization()
-    #resize = tio.Resize(128)
-    #transforms = [resize, normalization]
-    #transforms = [normalization]
-    #training_transform = tio.Compose(transforms)
-
-    #training_set = tio.SubjectsDataset(subjects, transform=training_transform)
     training_set = tio.SubjectsDataset(subjects)    
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
 #%%
     # get the spatial dimension of the data (3D)
-    #in_shape = resize(subjects[0]).target.shape[1:] 
     in_shape = subjects[0].target.shape[1:]     
     reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
     if args.load_unet:
@@ -118,7 +110,3 @@ if __name__ == '__main__':
     o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=inference_subject.source.affine)
     o.save(args.output)
 
-    #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
-    #o.save('source.nii.gz')
-    #o = tio.ScalarImage(tensor=inference_subject.target.data.detach().numpy(), affine=inference_subject.target.affine)
-    #o.save('target.nii.gz')    
