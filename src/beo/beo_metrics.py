@@ -70,3 +70,25 @@ class NCC(nn.Module):
     cc = cross * cross / (I_var * J_var + 1e-5)
 
     return -torch.mean(cc)
+  
+class Grad3d:
+  """
+  3-D gradient loss.
+  """
+  def __init__(self, penalty='l1'):
+    self.penalty = penalty
+
+  def forward(self, y_pred):
+    dy = torch.abs(y_pred[:, :, 1:, :, :] - y_pred[:, :, :-1, :, :])
+    dx = torch.abs(y_pred[:, :, :, 1:, :] - y_pred[:, :, :, :-1, :])
+    dz = torch.abs(y_pred[:, :, :, :, 1:] - y_pred[:, :, :, :, :-1])
+
+    if self.penalty == 'l2':
+      dy = dy * dy
+      dx = dx * dx
+      dz = dz * dz
+
+    d = torch.mean(dx) + torch.mean(dy) + torch.mean(dz)
+    grad = d / 3.0
+
+    return grad   
