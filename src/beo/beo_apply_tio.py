@@ -3,6 +3,7 @@
 import argparse
 
 import torchio as tio
+import numpy
 
 #%% Main program
 if __name__ == '__main__':
@@ -67,7 +68,10 @@ if __name__ == '__main__':
     composed_transforms = tio.Compose(transforms)
     output_subject = composed_transforms(subject)
 
-    output_subject.image.save(args.output_image) 
+
+    o = tio.ScalarImage(tensor=output_subject.image.data.detach().numpy().astype(numpy.float32), affine=output_subject.image.affine)
+    o.save(args.output_image)
+    #output_subject.image.save(args.output_image) 
        
     if args.output_mask is not None:
         output_subject.mask.save(args.output_mask)    
