@@ -20,7 +20,7 @@ import monai
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape, int_steps = 7, loss='mse'):  
+    def __init__(self, shape, int_steps = 7, loss='mse', lambda_mag=0, lambda_grad=0): 
         super().__init__()  
         self.shape = shape
         #self.unet = monai.networks.nets.Unet(spatial_dims=3, in_channels=2, out_channels=3, channels=(8,16,32), strides=(2,2))
@@ -35,6 +35,9 @@ class meta_registration_model(pl.LightningModule):
         elif loss == 'lncc':
             self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()    
 
+        self.lambda_mag  = lambda_mag
+        self.lambda_grad = lambda_grad
+
 
     def forward(self,source,target):
         x = torch.cat([source,target], dim=1)
@@ -46,7 +49,7 @@ class meta_registration_model(pl.LightningModule):
         backward_flow = self.vecint(backward_velocity)
         warped_target = self.transformer(target, backward_flow)
 
-        return warped_source, warped_target
+        return warped_source, warped_target, forward_flow, backward_flow
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
@@ -56,8 +59,22 @@ class meta_registration_model(pl.LightningModule):
 
         target = batch['target'][tio.DATA]
         source = batch['source'][tio.DATA]
-        warped_source, warped_target = self(source,target)
-        return self.loss(target,warped_source) + self.loss(source,warped_target)
+        #warped_source, warped_target = self(source,target)
+        x = torch.cat([source,target], dim=1)#.to(torch.float32)
+        forward_velocity = self.unet(x)
+        forward_flow = self.vecint(forward_velocity)
+        warped_source = self.transformer(source, forward_flow)
+
+        backward_velocity = - forward_velocity
+        backward_flow = self.vecint(backward_velocity)
+        warped_target = self.transformer(target, backward_flow)
+
+        loss = self.loss(target,warped_source) + self.loss(source,warped_target)
+
+        if self.lambda_mag > 0:  
+            loss += self.lambda_mag * F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
+
+        return loss
 
 
 #%% Main program
@@ -67,7 +84,8 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
     parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='mse')
-    parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
+    parser.add_argument('--lam_m', help='Lambda loss for velocity magnitude', type=float, required = False, default=0)
+    parser.add_argument('-o', '--output', help='Output prefix filename', type=str, required = True)
 
     parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
@@ -86,7 +104,7 @@ if __name__ == '__main__':
 #%%
     # get the spatial dimension of the data (3D)
     in_shape = subjects[0].target.shape[1:]     
-    reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
+    reg_net = meta_registration_model(shape=in_shape, loss=args.loss, lambda_mag=args.lam_m)
     if args.load_unet:
         reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
@@ -102,11 +120,16 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-    #inference_subject = training_transform(subject)
     inference_subject = subject
     source_data = torch.unsqueeze(inference_subject.source.data,0)
     target_data = torch.unsqueeze(inference_subject.target.data,0)    
-    warped_source,warped_target = reg_net.forward(source_data,target_data)
-    o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=inference_subject.source.affine)
-    o.save(args.output)
+    warped_source,warped_target, forward_flow, backward_flow = reg_net.forward(source_data,target_data)
 
+    o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=inference_subject.source.affine)
+    o.save(args.output+'_warped.nii.gz')
+    o = tio.ScalarImage(tensor=warped_target[0].detach().numpy(), affine=inference_subject.target.affine)   
+    o.save(args.output+'_inverse_warped.nii.gz')
+    o = tio.ScalarImage(tensor=forward_flow[0].detach().numpy(), affine=inference_subject.target.affine)   
+    o.save(args.output+'_warp.nii.gz')
+    o = tio.ScalarImage(tensor=backward_flow[0].detach().numpy(), affine=inference_subject.target.affine)   
+    o.save(args.output+'_inverse_warp.nii.gz')
