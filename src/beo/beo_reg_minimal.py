@@ -12,7 +12,7 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 import torchio as tio
 import numpy as np
 
-from beo_metrics import NCC
+from beo_metrics import NCC, Grad3d
 from beo_svf import SpatialTransformer, VecInt
 from beo_nets import Unet
 
@@ -20,7 +20,7 @@ import monai
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape, int_steps = 7, loss='mse', lambda_mag=0, lambda_grad=0): 
+    def __init__(self, shape, int_steps = 7, loss='mse', lambda_mag=0, lambda_grad=0, lambda_seg=0): 
         super().__init__()  
         self.shape = shape
         #self.unet = monai.networks.nets.Unet(spatial_dims=3, in_channels=2, out_channels=3, channels=(8,16,32), strides=(2,2))
@@ -37,6 +37,8 @@ class meta_registration_model(pl.LightningModule):
 
         self.lambda_mag  = lambda_mag
         self.lambda_grad = lambda_grad
+        self.lambda_seg = lambda_seg
+        self.transformer_seg = SpatialTransformer(size=shape,mode='nearest')
 
 
     def forward(self,source,target):
@@ -69,10 +71,27 @@ class meta_registration_model(pl.LightningModule):
         backward_flow = self.vecint(backward_velocity)
         warped_target = self.transformer(target, backward_flow)
 
-        loss = self.loss(target,warped_source) + self.loss(source,warped_target)
+        loss_img = self.loss(target,warped_source) + self.loss(source,warped_target)
+        self.log("train_loss_img", loss_img, prog_bar=True, on_epoch=True)
+
+        loss = loss_img
 
         if self.lambda_mag > 0:  
-            loss += self.lambda_mag * F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
+            loss_mag = self.lambda_mag * F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
+            self.log("train_loss_mag", loss_mag, prog_bar=True, on_epoch=True)
+            loss += loss_mag
+
+        if self.lambda_grad > 0:  
+            loss_grad = self.lambda_grad * Grad3d().forward(forward_flow)  
+            self.log("train_loss_grad", loss_grad, prog_bar=True, on_epoch=True)
+            loss += loss_grad
+
+        if self.lambda_seg > 0:
+            warped_source_label = self.transformer_seg(batch['source_seg'][tio.DATA], forward_flow)
+            warped_target_label = self.transformer_seg(batch['target_seg'][tio.DATA], backward_flow)
+            loss_seg = self.lambda_seg * monai.losses.DiceCELoss(softmax=True)(warped_source_label, batch['target_seg'][tio.DATA]) + self.lambda_seg * monai.losses.DiceCELoss(softmax=True)(warped_target_label, batch['source_seg'][tio.DATA])
+            self.log("train_loss_seg", loss_seg, prog_bar=True, on_epoch=True)
+            loss += loss_seg    
 
         return loss
 
@@ -84,11 +103,18 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, required = True)
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
     parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='mse')
-    parser.add_argument('--lam_m', help='Lambda loss for velocity magnitude', type=float, required = False, default=0)
+    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0)
+    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=0)
     parser.add_argument('-o', '--output', help='Output prefix filename', type=str, required = True)
 
     parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
+
+    parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
+
+    parser.add_argument('--target_seg', help='Target / Reference segmentation', type=str, required = False)
+    parser.add_argument('--source_seg', help='Source / Moving segmentation', type=str, required = False)
+    parser.add_argument('--lam_s', help='Lambda loss for segmentation', type=float, required = False, default=0)
 
     args = parser.parse_args()
 
@@ -97,22 +123,44 @@ if __name__ == '__main__':
         target=tio.ScalarImage(args.target),
         source=tio.ScalarImage(args.source),
     )
+
+    if args.target_seg is not None:
+        subject['target_seg'] = tio.LabelMap(args.target_seg)
+    if args.source_seg is not None:
+        subject['source_seg'] = tio.LabelMap(args.source_seg)
+
+    transforms = []
+    transforms.append(tio.transforms.OneHot())
+
     subjects.append(subject) 
 
-    training_set = tio.SubjectsDataset(subjects)    
+    training_set = tio.SubjectsDataset(subjects,tio.Compose(transforms))    
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
 #%%
     # get the spatial dimension of the data (3D)
     in_shape = subjects[0].target.shape[1:]     
-    reg_net = meta_registration_model(shape=in_shape, loss=args.loss, lambda_mag=args.lam_m)
+    reg_net = meta_registration_model(
+        shape = in_shape, 
+        loss = args.loss, 
+        lambda_mag = args.lam_m, 
+        lambda_grad= args.lam_g,
+        lambda_seg = args.lam_s)
+    
     if args.load_unet:
         reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
-    trainer_reg = pl.Trainer(
-        max_epochs=args.epochs, 
-        strategy = DDPStrategy(find_unused_parameters=True),
-        logger=False, 
-        enable_checkpointing=False)  
+    trainer_args = {
+        'max_epochs' : args.epochs, 
+        'strategy' : DDPStrategy(find_unused_parameters=True),
+        }
+    
+    if args.logger is None:
+        trainer_args['logger'] = False
+        trainer_args['enable_checkpointing']=False
+    else:    
+        trainer_args['logger'] = pl.loggers.TensorBoardLogger(save_dir = 'lightning_logs', name = args.logger)
+
+    trainer_reg = pl.Trainer(**trainer_args)          
     
     trainer_reg.fit(reg_net, training_loader)  
     if args.save_unet:
