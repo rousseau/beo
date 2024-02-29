@@ -24,6 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('--resample', help='Voxel size for Resample', type=float, required=False, default=0)
     parser.add_argument('--resize', help='Image size for Resize', type=float, required=False, default=0)
 
+    parser.add_argument('--onehot', help='Apply one hot encoding', action='store_true')
+
     parser.add_argument('--interp', help='Interpolation mode (bspline, linear, nearest)', type=str, required=False, default='bspline')
 
     args = parser.parse_args()
@@ -32,7 +34,11 @@ if __name__ == '__main__':
     sub_dict = {}
     arg_dict = {}
     
-    sub_dict['image'] = tio.ScalarImage(args.input_image)
+    if args.onehot:
+        sub_dict['image'] = tio.LabelMap(args.input_image)
+    else:
+        sub_dict['image'] = tio.ScalarImage(args.input_image)
+
     if args.mask:
         sub_dict['mask'] = tio.LabelMap(args.mask)
     if args.label:
@@ -55,6 +61,9 @@ if __name__ == '__main__':
 
     if args.masking:    
         transforms.append(tio.transforms.Mask(masking_method='mask'))
+    if args.onehot:
+        transforms.append(tio.transforms.OneHot())
+
     if args.resample > 0:
         transforms.append(tio.transforms.Resample(args.resample,image_interpolation = args.interp)) # or linear for zero background
     if args.resize > 0:
