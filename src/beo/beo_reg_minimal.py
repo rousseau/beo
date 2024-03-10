@@ -117,6 +117,8 @@ if __name__ == '__main__':
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
 
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
+    parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
+    parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
 
     parser.add_argument('--target_seg', help='Target / Reference segmentation', type=str, required = False)
     parser.add_argument('--source_seg', help='Source / Moving segmentation', type=str, required = False)
@@ -125,6 +127,11 @@ if __name__ == '__main__':
     parser.add_argument('--onehot', help='Apply one hot encoding', action='store_true')
 
     args = parser.parse_args()
+
+    print(args)
+
+    if args.tensor_cores:
+        torch.set_float32_matmul_precision('high')
 
     subjects = []
     subject = tio.Subject(
@@ -167,6 +174,7 @@ if __name__ == '__main__':
     trainer_args = {
         'max_epochs' : args.epochs, 
         'strategy' : DDPStrategy(find_unused_parameters=True),
+        'precision' : args.precision,
         }
     
     if args.logger is None:
