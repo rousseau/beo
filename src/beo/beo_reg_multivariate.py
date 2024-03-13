@@ -15,6 +15,7 @@ import numpy as np
 from beo_metrics import NCC, Grad3d
 from beo_svf import SpatialTransformer, VecInt
 from beo_nets import Unet
+from beo_loss import GetLoss
 
 import monai
 
@@ -31,14 +32,7 @@ class meta_registration_model(pl.LightningModule):
 
         self.loss = []
         for l in loss:
-            if l == 'mse':
-                self.loss.append(nn.MSELoss())
-            elif l == 'mae':
-                self.loss.append(nn.L1Loss())
-            elif l == 'ncc':                 
-                self.loss.append(NCC())
-            elif l == 'lncc':
-                self.loss.append(monai.losses.LocalNormalizedCrossCorrelationLoss())    
+            self.loss.append(GetLoss(l))
 
         self.lambda_loss  = lambda_loss
         self.lambda_mag  = lambda_mag
@@ -77,20 +71,20 @@ class meta_registration_model(pl.LightningModule):
             if self.lambda_loss[i] > 0:
                 target = batch['target_'+str(i)][tio.DATA]
                 source = batch['source_'+str(i)][tio.DATA]
-                loss_img = self.lambda_loss[i] * (self.loss[i](target,self.transformer(source, forward_flow)) + self.loss[i](source,self.transformer(target, backward_flow)))
+                loss_img = (self.loss[i](target,self.transformer(source, forward_flow)) + self.loss[i](source,self.transformer(target, backward_flow)))
                 self.log('train_loss_img_'+str(i), loss_img, prog_bar=True, on_epoch=True, sync_dist=True)
-                loss += loss_img
+                loss += self.lambda_loss[i] * loss_img
         loss = loss / len(self.loss)        
 
         if self.lambda_mag > 0:  
-            loss_mag = self.lambda_mag * F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
+            loss_mag = F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
             self.log("train_loss_mag", loss_mag, prog_bar=True, on_epoch=True, sync_dist=True)
-            loss += loss_mag
+            loss += self.lambda_mag * loss_mag
 
         if self.lambda_grad > 0:  
-            loss_grad = self.lambda_grad * Grad3d().forward(forward_flow)  
+            loss_grad = Grad3d().forward(forward_flow)  
             self.log("train_loss_grad", loss_grad, prog_bar=True, on_epoch=True, sync_dist=True)
-            loss += loss_grad
+            loss += self.lambda_grad * loss_grad
 
         return loss
 
@@ -99,13 +93,14 @@ class meta_registration_model(pl.LightningModule):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Multivariate Registration 3D Image Pair')
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
-    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0)
-    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=0)
 
     parser.add_argument('-t', '--target', help='Target / Reference Image', type=str, action='append', required = True)
     parser.add_argument('-s', '--source', help='Source / Moving Image', type=str, action='append', required = True)
     parser.add_argument('-l', '--loss', help='Similarity (mse, mae, ncc, lncc)', type=str, action='append', required = True)
     parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
+
+    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0.1)
+    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=1)
 
     parser.add_argument('-o', '--output', help='Output prefix filename', type=str, required = True)
 
@@ -113,11 +108,16 @@ if __name__ == '__main__':
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
 
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
+    parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
+    parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
 
     parser.add_argument('--sigma', help='Sigma for data blurring', type=float, required = False, default=0.0)
 
 
     args = parser.parse_args()
+
+    if args.tensor_cores:
+        torch.set_float32_matmul_precision('high')
 
     for i in range(len(args.target)):
         print('target:',args.target[i])
@@ -154,6 +154,7 @@ if __name__ == '__main__':
     trainer_args = {
         'max_epochs' : args.epochs, 
         'strategy' : DDPStrategy(find_unused_parameters=True),
+        'precision' : args.precision,
         }
     
     if args.logger is None:
