@@ -150,8 +150,8 @@ if __name__ == '__main__':
 
     parser.add_argument('-l', '--loss', help='Similarity (mse, mae, ncc, lncc)', type=str, action='append', required = True)
     parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
-    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0)
-    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=0)
+    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0.1)
+    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=1)
 
     parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
@@ -238,14 +238,6 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-    for i in range(len(subjects)):
-        inference_subject = subjects[i]
-        image = torch.unsqueeze(inference_subject.image_0.data,0)
-        warped_atlas, warped_image, forward_flow, backward_flow = reg_net.forward(image)
-
-        o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=inference_subject.image_0.affine)
-        o.save(args.output+'_warped_image_'+str(i)+'.nii.gz')
-
     atlas_0 = reg_net.atlas_init[0].to(reg_net.device)
     forward_velocity_atlas = reg_net.unet_atlas(atlas_0)
     forward_flow_atlas = reg_net.vecint(forward_velocity_atlas)
@@ -253,5 +245,16 @@ if __name__ == '__main__':
 
     o = tio.ScalarImage(tensor=atlas_def[0].detach().numpy(), affine=subjects[0].image_0.affine)
     o.save(args.output+'_atlas.nii.gz')
+
+    '''
+    for i in range(len(subjects)):
+        inference_subject = subjects[i]
+        image = torch.unsqueeze(inference_subject.image_0.data,0)
+        warped_atlas, warped_image, forward_flow, backward_flow = reg_net.forward(image)
+
+        o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=inference_subject.image_0.affine)
+        o.save(args.output+'_warped_image_'+str(i)+'.nii.gz')
+    '''    
+        
     
 
