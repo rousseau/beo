@@ -127,6 +127,8 @@ class meta_registration_model(pl.LightningModule):
                 loss += self.lambda_loss[i] * atlas_loss
         loss = loss / len(self.loss)
 
+        # Note: lambda should be different for unet_reg and unet_atlas since one is inter-subject registration
+        # and the other one is intra-subject registration (deformation of the atlas)
         if self.lambda_mag > 0:  
             # Magnitude Loss for unet_reg
             loss_mag = F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
