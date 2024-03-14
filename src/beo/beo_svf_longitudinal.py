@@ -18,6 +18,7 @@ import monai
 
 import math
 import random
+from beo_loss import GetLoss
 
 class CustomRandomDataset(Dataset):
     """
@@ -55,20 +56,21 @@ class CustomRandomDataset(Dataset):
 
 #%% Lightning module
 class meta_registration_model(pl.LightningModule):
-    def __init__(self, shape, int_steps = 7, loss='mse'):  
+    def __init__(self, shape, int_steps = 7, loss=['mse'], lambda_loss=[1], lambda_mag=0, lambda_grad=0):  
         super().__init__()  
         self.shape = shape
-        #self.unet = monai.networks.nets.Unet(spatial_dims=3, in_channels=2, out_channels=3, channels=(8,16,32), strides=(2,2))
         self.unet = Unet(n_channels = 2, n_classes = 3, n_features = 32)
         self.transformer = SpatialTransformer(size=shape)
         self.int_steps = int_steps
         self.vecint = VecInt(inshape=shape, nsteps=int_steps)
-        if loss == 'mse':
-            self.loss = nn.MSELoss()
-        elif loss == 'ncc':                 
-            self.loss = NCC()
-        elif loss == 'lncc':
-            self.loss = monai.losses.LocalNormalizedCrossCorrelationLoss()    
+
+        self.loss = []
+        for l in loss:
+            self.loss.append(GetLoss(l))
+
+        self.lambda_loss  = lambda_loss
+        self.lambda_mag  = lambda_mag
+        self.lambda_grad = lambda_grad
 
 
     def forward(self,source,target):
@@ -97,11 +99,11 @@ class meta_registration_model(pl.LightningModule):
         #print(sample1['age'].float(),sample2['age'].float(),sample3['age'].float())
 
         # sample 1 (source) registered on sample 2 (target)
-        svf12 = self(sample1['image'][tio.DATA],sample2['image'][tio.DATA])
+        svf12 = self(sample1['image_0'][tio.DATA],sample2['image_0'][tio.DATA])
         w12 = sample2['age'].float() - sample1['age'].float()        
 
         # sample 1 (source) registered on sample 3 (target)
-        svf13 = self(sample1['image'][tio.DATA],sample3['image'][tio.DATA])
+        svf13 = self(sample1['image_0'][tio.DATA],sample3['image_0'][tio.DATA])
         w13 = sample3['age'].float() - sample1['age'].float()        
 
         #print(w12, w13)
@@ -123,31 +125,49 @@ class meta_registration_model(pl.LightningModule):
         flow12 = self.vecint(csvf12)
         flow21 = self.vecint(csvf21)
 
-        loss12 = self.loss(sample2['image'][tio.DATA],self.transformer(sample1['image'][tio.DATA], flow12))
-        loss13 = self.loss(sample3['image'][tio.DATA],self.transformer(sample1['image'][tio.DATA], flow13))
-        loss21 = self.loss(sample1['image'][tio.DATA],self.transformer(sample2['image'][tio.DATA], flow21))
-        loss31 = self.loss(sample1['image'][tio.DATA],self.transformer(sample3['image'][tio.DATA], flow31))
-        return loss12 + loss13 + loss21 + loss31
+        loss = 0
+        loss12 = self.loss[0](sample2['image_0'][tio.DATA],self.transformer(sample1['image_0'][tio.DATA], flow12))
+        loss13 = self.loss[0](sample3['image_0'][tio.DATA],self.transformer(sample1['image_0'][tio.DATA], flow13))
+        loss21 = self.loss[0](sample1['image_0'][tio.DATA],self.transformer(sample2['image_0'][tio.DATA], flow21))
+        loss31 = self.loss[0](sample1['image_0'][tio.DATA],self.transformer(sample3['image_0'][tio.DATA], flow31))
+
+
+        loss = loss12 + loss13 + loss21 + loss31
+        return loss
+
 
 
 #%% Main program
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Beo Registration 3D Longitudinaal Images')
-    parser.add_argument('-f', '--filename', help='Text file containing list of nifti files and corresponding age', type=str, required = True)
+    parser = argparse.ArgumentParser(description='Beo Registration 3D Longitudinal Images')
+    parser.add_argument('-t', '--tsv_file', help='tsv file ', type=str, required = True)
+    parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
+    parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=29)
+
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
-    parser.add_argument('-l', '--loss', help='Similarity (mse, ncc, lncc)', type=str, required = False, default='ncc')
+    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=1)
+
+    parser.add_argument('-l', '--loss', help='Similarity (mse, mae, ncc, lncc)', type=str, action='append', required = True)
+    parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
+    parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0.1)
+    parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=1)
+
     parser.add_argument('-o', '--output', help='Output filename', type=str, required = True)
 
     parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
     parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
 
-    parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
-    parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=29)
+
+    parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
+    parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
+    parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
 
     args = parser.parse_args()
 
-    df = pd.read_csv(args.filename, names=["nifti", "age"], sep=" ", dtype={"scalar": float})
-    print(df)
+    if args.tensor_cores:
+        torch.set_float32_matmul_precision('high')
+
+    df = pd.read_csv(args.tsv_file, sep='\t')
 
     # Convert linearly age to [0,1] SVF interval
     # Example
@@ -160,34 +180,46 @@ if __name__ == '__main__':
     subjects = []
     for index, row in df.iterrows():
         subject = tio.Subject(
-            image=tio.ScalarImage(row["nifti"]),
+            image_0=tio.ScalarImage(row['image']),
+            image_1=tio.ScalarImage(row['onehot']),
             age= a * row["age"] + b
         )
         subjects.append(subject)
 
-    normalization = tio.ZNormalization()
-    transforms = [normalization]
-    training_transform = tio.Compose(transforms)
-
-    #training_set = tio.SubjectsDataset(subjects, transform=training_transform)
     training_set = tio.SubjectsDataset(subjects)    
-
     torch_dataset = CustomRandomDataset(training_set)
-    training_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=1, shuffle=True)
+    training_loader = torch.utils.data.DataLoader(torch_dataset, batch_size=1)
 
 #%%
     # get the spatial dimension of the data (3D)
-    in_shape = subjects[0].image.shape[1:]     
-    reg_net = meta_registration_model(shape=in_shape, loss=args.loss)
+    in_shape = subjects[0].image_0.shape[1:]     
+
+    reg_net = meta_registration_model(
+        shape = in_shape, 
+        loss = args.loss, 
+        lambda_loss = args.lam_l,
+        lambda_mag = args.lam_m, 
+        lambda_grad= args.lam_g)
+
     if args.load_unet:
         reg_net.unet.load_state_dict(torch.load(args.load_unet))
 
 #%%
-    trainer_reg = pl.Trainer(
-        max_epochs=args.epochs, 
-        strategy = DDPStrategy(find_unused_parameters=True),
-        logger=False, 
-        enable_checkpointing=False)   
+    trainer_args = {
+        'max_epochs' : args.epochs, 
+        'strategy' : DDPStrategy(find_unused_parameters=True),
+        'precision' : args.precision,
+        'accumulate_grad_batches' : args.accumulate_grad_batches,
+        }
+    
+    if args.logger is None:
+        trainer_args['logger'] = False
+        trainer_args['enable_checkpointing']=False
+    else:    
+        trainer_args['logger'] = pl.loggers.TensorBoardLogger(save_dir = 'lightning_logs', name = args.logger)
+
+    trainer_reg = pl.Trainer(**trainer_args)          
+#%%
     trainer_reg.fit(reg_net, training_loader)  
     if args.save_unet:
         torch.save(reg_net.unet.state_dict(), args.save_unet)
@@ -202,10 +234,10 @@ if __name__ == '__main__':
             template_t0 = s
             break    
 
-    source_data = torch.unsqueeze(template_t0.image.data,0)
+    source_data = torch.unsqueeze(template_t0.image_0.data,0)
     for i in range(len(subjects)):
         target_subject = training_set[i]     
-        target_data = torch.unsqueeze(target_subject.image.data,0)  
+        target_data = torch.unsqueeze(target_subject.image_0.data,0)  
         weight = target_subject.age - template_t0.age 
         svf = reg_net(source_data,target_data)
         flow = reg_net.vecint(weight*svf)
