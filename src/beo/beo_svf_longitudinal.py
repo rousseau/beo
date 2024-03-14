@@ -13,10 +13,9 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 
 from beo_svf import SpatialTransformer, VecInt
 from beo_nets import Unet
-from beo_metrics import NCC
-import monai
+from beo_metrics import Grad3d
 
-import math
+#import math
 import random
 from beo_loss import GetLoss
 
@@ -130,9 +129,24 @@ class meta_registration_model(pl.LightningModule):
         loss13 = self.loss[0](sample3['image_0'][tio.DATA],self.transformer(sample1['image_0'][tio.DATA], flow13))
         loss21 = self.loss[0](sample1['image_0'][tio.DATA],self.transformer(sample2['image_0'][tio.DATA], flow21))
         loss31 = self.loss[0](sample1['image_0'][tio.DATA],self.transformer(sample3['image_0'][tio.DATA], flow31))
+        loss += loss12 + loss13 + loss21 + loss31
 
+        if self.lambda_mag > 0:  
+            loss_mag12 = F.mse_loss(torch.zeros(flow12.shape,device=self.device),flow12)  
+            loss_mag13 = F.mse_loss(torch.zeros(flow13.shape,device=self.device),flow13)  
+            loss_mag21 = F.mse_loss(torch.zeros(flow21.shape,device=self.device),flow21)  
+            loss_mag31 = F.mse_loss(torch.zeros(flow31.shape,device=self.device),flow31)  
+            loss_mag = self.lambda_mag * (loss_mag12 + loss_mag13 + loss_mag21 + loss_mag31) / 4
+            loss += loss_mag
 
-        loss = loss12 + loss13 + loss21 + loss31
+        if self.lambda_grad > 0:  
+            loss_grad12 = Grad3d().forward(flow12)  
+            loss_grad13 = Grad3d().forward(flow13)  
+            loss_grad21 = Grad3d().forward(flow21)  
+            loss_grad31 = Grad3d().forward(flow31)  
+            loss_grad = self.lambda_grad * (loss_grad12 + loss_grad13 + loss_grad21 + loss_grad31) / 4
+            loss += loss_grad
+
         return loss
 
 
