@@ -5,6 +5,7 @@ import argparse
 import pandas as pd
 import torch
 import torch.nn as nn 
+import torch.nn.functional as F
 
 import torchio as tio
 from torch.utils.data import Dataset
