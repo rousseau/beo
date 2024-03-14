@@ -245,6 +245,7 @@ if __name__ == '__main__':
 
     # Find initial template, i.e. the one for t0
     for s in subjects:
+        print(s.age)
         if s.age == 0:
             template_t0 = s
             break    
