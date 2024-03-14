@@ -242,8 +242,8 @@ if __name__ == '__main__':
         svf = reg_net(source_data,target_data)
         flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
-        o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image.affine)
-        o.save(args.output+'_svf_'+str(i+1)+'_'+args.loss+'_e'+str(args.epochs)+'.nii.gz')
+        o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
+        o.save(args.output+'_svf_'+str(i+1)+'_'+args.loss[0]+'_e'+str(args.epochs)+'.nii.gz')
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
