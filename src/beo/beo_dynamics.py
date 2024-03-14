@@ -41,9 +41,8 @@ class meta_registration_model(pl.LightningModule):
         self.lambda_grad = lambda_grad
 
 
-    def forward(self,source,target):
-        x = torch.cat([source,target], dim=1)
-        forward_velocity = self.unet(x)
+    def forward(self,source):
+        forward_velocity = self.unet(source)
         return forward_velocity
         
     def configure_optimizers(self):
