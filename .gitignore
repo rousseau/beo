@@ -123,3 +123,4 @@ dmypy.json
 .pyre/
 src/.DS_Store
 *.DS_Store
+tmp/.DS_Store
