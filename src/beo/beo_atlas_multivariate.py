@@ -128,14 +128,24 @@ class meta_registration_model(pl.LightningModule):
         loss = loss / len(self.loss)
 
         if self.lambda_mag > 0:  
+            # Magnitude Loss for unet_reg
             loss_mag = F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
-            self.log("train_loss_mag", loss_mag, prog_bar=True, on_epoch=True, sync_dist=True)
-            loss += self.lambda_mag * loss_mag
+            self.log("train_loss_mag_unet_reg", loss_mag, prog_bar=True, on_epoch=True, sync_dist=True)
+            # Magnitude Loss for unet_atlas
+            loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)  
+            self.log("train_loss_mag_unet_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            loss += self.lambda_mag * (loss_mag + loss_mag_atlas)
 
         if self.lambda_grad > 0:  
+            # Gradient Loss for unet_reg
             loss_grad = Grad3d().forward(forward_flow)  
             self.log("train_loss_grad", loss_grad, prog_bar=True, on_epoch=True, sync_dist=True)
-            loss += self.lambda_grad * loss_grad
+            # Gradient Loss for unet_atlas
+            loss_grad_atlas = Grad3d().forward(forward_flow_atlas)
+            self.log("train_loss_grad_atlas", loss_grad_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            loss += self.lambda_grad * (loss_grad + loss_grad_atlas)
 
         return loss
 
