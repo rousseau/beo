@@ -73,6 +73,7 @@ class meta_registration_model(pl.LightningModule):
                 warped_image = self.transformer(image, backward_flow)
 
                 # Get the loss
+                print('loss',i, ', shape:',warped_atlas.shape, warped_image.shape)
                 loss_i = self.loss[i](warped_atlas,image) + self.loss[i](warped_image,atlas)
                 loss += self.lambda_loss[i] * loss_i
 
