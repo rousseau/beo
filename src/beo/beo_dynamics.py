@@ -192,7 +192,7 @@ if __name__ == '__main__':
     # Inference
 
 
-    source_data = reg_net.atlas[0].to(self.device)
+    source_data = reg_net.atlas[0].to(reg_net.device)
     for i in range(len(subjects)):
         target_subject = training_set[i]     
         target_data = torch.unsqueeze(target_subject.image_0.data,0)  
