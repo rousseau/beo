@@ -191,19 +191,13 @@ if __name__ == '__main__':
 #%%
     # Inference
 
-    # Find initial template, i.e. the one for t0
-    for s in subjects:
-        print(s.age)
-        if s.age == 0:
-            template_t0 = s
-            break    
 
-    source_data = torch.unsqueeze(template_t0.image_0.data,0)
+    source_data = reg_net.atlas[0].to(self.device)
     for i in range(len(subjects)):
         target_subject = training_set[i]     
         target_data = torch.unsqueeze(target_subject.image_0.data,0)  
-        weight = target_subject.age - template_t0.age 
-        svf = reg_net(source_data,target_data)
+        weight = target_subject.age 
+        svf = reg_net(source_data)
         flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
