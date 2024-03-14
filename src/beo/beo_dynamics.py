@@ -52,10 +52,10 @@ class meta_registration_model(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # Extract first component of atlas
-        atlas_0 = self.atlas_init[0].to(self.device)
+        atlas_0 = self.atlas[0].to(self.device)
 
         # Get the svf for the given atlas (initial point)
-        forward_velocity = batch['age'].float() * self.unet_atlas(atlas_0)
+        forward_velocity = batch['age'].float() * self.unet(atlas_0)
         forward_flow = self.vecint(forward_velocity)
 
         backward_velocity = - forward_velocity
