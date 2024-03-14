@@ -25,7 +25,7 @@ class meta_registration_model(pl.LightningModule):
     def __init__(self, shape, atlas, int_steps = 7, loss=['mse'], lambda_loss=[1], lambda_mag=0, lambda_grad=0):  
         super().__init__()  
         self.shape = shape
-        self.unet = Unet(n_channels = 2, n_classes = 3, n_features = 32)
+        self.unet = Unet(n_channels = 1, n_classes = 3, n_features = 32)
         self.transformer = SpatialTransformer(size=shape)
         self.int_steps = int_steps
         self.vecint = VecInt(inshape=shape, nsteps=int_steps)
