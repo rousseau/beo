@@ -194,7 +194,7 @@ if __name__ == '__main__':
         torch.save(reg_net.unet.state_dict(), args.save_unet)
 
 #%%
-    exp_name = '_'+args.t0+'_'+args.t1
+    exp_name = '_'+str(args.t0)+'_'+str(args.t1)
     for l in args.loss:
         exp_name += '_'+l
     exp_name += '_e'+str(args.epochs)
