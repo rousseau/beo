@@ -120,6 +120,9 @@ if __name__ == '__main__':
     parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
     parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
 
+    parser.add_argument('--max_subj', help='Max number of subjects (for progressive learning)', type=int, required = False, default=0)
+
+
     args = parser.parse_args()
 
     if args.tensor_cores:
@@ -144,8 +147,13 @@ if __name__ == '__main__':
         )
         subjects.append(subject)
 
+    if args.max_subj > 0:
+        subjects = subjects[0:args.max_subj]
+
+    print(len(subjects))        
+
     training_set = tio.SubjectsDataset(subjects)    
-    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
+    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True, num_workers=8, pin_memory=True)
 
 # Read atlas initialization
     atlas = []
@@ -189,8 +197,6 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-
-
     source_data = reg_net.atlas[0].to(reg_net.device)
     for i in range(len(subjects)):
         target_subject = training_set[i]     
