@@ -150,8 +150,6 @@ if __name__ == '__main__':
     if args.max_subj > 0:
         subjects = subjects[0:args.max_subj]
 
-    print(len(subjects))        
-
     training_set = tio.SubjectsDataset(subjects)    
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True, num_workers=8, pin_memory=True)
 
@@ -196,6 +194,16 @@ if __name__ == '__main__':
         torch.save(reg_net.unet.state_dict(), args.save_unet)
 
 #%%
+     exp_name = '_'+args.t0+'_'+args.t1
+    for l in args.loss:
+        exp_name += '_'+l
+    exp_name += '_e'+str(args.epochs)
+    exp_name += '_laml'+str(args.lam_l)
+    exp_name += '_lamm'+str(args.lam_m)
+    exp_name += '_lamg'+str(args.lam_g)
+    exp_name += '_ms'+str(args.max_subj)
+
+#%%
     # Inference
     source_data = reg_net.atlas[0].to(reg_net.device)
     for i in range(len(subjects)):
@@ -206,7 +214,7 @@ if __name__ == '__main__':
         flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
-        o.save(args.output+'_svf_'+str(i+1)+'_'+args.loss[0]+'_e'+str(args.epochs)+'.nii.gz')
+        o.save(args.output+'_svf_'+str(i+1)+exp_name+'.nii.gz')
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
