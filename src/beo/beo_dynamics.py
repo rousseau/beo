@@ -54,7 +54,9 @@ class meta_registration_model(pl.LightningModule):
         atlas_0 = self.atlas[0].to(self.device)
 
         # Get the svf for the given atlas (initial point)
-        forward_velocity = batch['age'].float() * self.unet(atlas_0)
+        weight_age = batch['age'].float()
+        print(weight_age)
+        forward_velocity = weight_age * self.unet(atlas_0)
         forward_flow = self.vecint(forward_velocity)
 
         backward_velocity = - forward_velocity
@@ -74,7 +76,7 @@ class meta_registration_model(pl.LightningModule):
 
                 # Get the loss
                 loss_i = self.loss[i](warped_atlas,image) + self.loss[i](warped_image,atlas)
-                self.log('train_loss_'+str(i)+'_age'+str(batch['age'].float()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
+                self.log('train_loss_'+str(i)+'_age'+str(weight_age), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
 
                 loss += self.lambda_loss[i] * loss_i
 
