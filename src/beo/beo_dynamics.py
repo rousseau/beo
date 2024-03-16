@@ -54,7 +54,7 @@ class meta_registration_model(pl.LightningModule):
         atlas_0 = self.atlas[0].to(self.device)
 
         # Get the svf for the given atlas (initial point)
-        weight_age = batch['age'].float()
+        weight_age = batch['age'].float()[0]
         print(weight_age)
         forward_velocity = weight_age * self.unet(atlas_0)
         forward_flow = self.vecint(forward_velocity)
