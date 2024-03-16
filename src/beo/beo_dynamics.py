@@ -74,6 +74,8 @@ class meta_registration_model(pl.LightningModule):
 
                 # Get the loss
                 loss_i = self.loss[i](warped_atlas,image) + self.loss[i](warped_image,atlas)
+                self.log('train_loss_'+str(i)+'_age'+str(batch['age'].float()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
+
                 loss += self.lambda_loss[i] * loss_i
 
         loss = loss / len(self.loss)
@@ -190,8 +192,6 @@ if __name__ == '__main__':
     trainer_reg = pl.Trainer(**trainer_args)          
 #%%
     trainer_reg.fit(reg_net, training_loader)  
-    if args.save_unet:
-        torch.save(reg_net.unet.state_dict(), args.save_unet)
 
 #%%
     exp_name = '_'+str(args.t0)+'_'+str(args.t1)
@@ -204,6 +204,10 @@ if __name__ == '__main__':
     exp_name += '_ms'+str(args.max_subj)
 
 #%%
+    if args.save_unet:
+        torch.save(reg_net.unet.state_dict(), args.save_unet)
+
+
     # Inference
     source_data = reg_net.atlas[0].to(reg_net.device)
     for i in range(len(subjects)):
