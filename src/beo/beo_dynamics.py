@@ -75,7 +75,7 @@ class meta_registration_model(pl.LightningModule):
 
                 # Get the loss
                 loss_i = self.loss[i](warped_atlas,image) + self.loss[i](warped_image,atlas)
-                self.log('train_loss_'+str(i)+'_age'+str(weight_age.item()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
+                #self.log('train_loss_'+str(i)+'_age'+str(weight_age.item()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
 
                 loss += self.lambda_loss[i] * loss_i
 
@@ -149,6 +149,7 @@ if __name__ == '__main__':
             image_1=tio.ScalarImage(row['onehot']),
             age= a * row["age"] + b
         )
+        print(row['image'])
         subjects.append(subject)
 
     if args.max_subj > 0:
