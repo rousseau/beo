@@ -156,7 +156,7 @@ if __name__ == '__main__':
         subjects = subjects[0:args.max_subj]
 
     training_set = tio.SubjectsDataset(subjects)    
-    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=False, num_workers=8, pin_memory=True)
+    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True, num_workers=8, pin_memory=True)
 
 # Read atlas initialization
     atlas = []
