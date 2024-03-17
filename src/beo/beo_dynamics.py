@@ -126,6 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
     parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
     parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--n_gpus', help='Number of gpus (default is 0, meaning all available gpus)', type=int, required = False, default=0)
 
     parser.add_argument('--max_subj', help='Max number of subjects (for progressive learning)', type=int, required = False, default=0)
 
@@ -188,6 +189,9 @@ if __name__ == '__main__':
         'accumulate_grad_batches' : args.accumulate_grad_batches,
         }
     
+    if args.n_gpus > 0:
+        trainer_args['devices'] = args.n_gpus
+
     if args.logger is None:
         trainer_args['logger'] = False
         trainer_args['enable_checkpointing']=False
