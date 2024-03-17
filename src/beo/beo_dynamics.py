@@ -55,6 +55,7 @@ class meta_registration_model(pl.LightningModule):
 
         # Get the svf for the given atlas (initial point)
         weight_age = batch['age'].float()
+        print('weight_age',weight_age.item())
         forward_velocity = weight_age * self.unet(atlas_0)
         forward_flow = self.vecint(forward_velocity)
 
@@ -75,7 +76,8 @@ class meta_registration_model(pl.LightningModule):
 
                 # Get the loss
                 loss_i = self.loss[i](warped_atlas,image) + self.loss[i](warped_image,atlas)
-                self.log('train_loss_'+str(i)+'_age'+str(weight_age.item()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
+                print('train_loss_'+str(i)+'_age'+str(weight_age.item()), loss_i.item())
+                #self.log('train_loss_'+str(i)+'_age'+str(weight_age.item()), loss_i, prog_bar=True, on_epoch=True, sync_dist=True)
 
                 loss += self.lambda_loss[i] * loss_i
 
@@ -84,14 +86,14 @@ class meta_registration_model(pl.LightningModule):
         if self.lambda_mag > 0:  
             # Magnitude Loss for unet_reg
             loss_mag = F.mse_loss(torch.zeros(forward_flow.shape,device=self.device),forward_flow)  
-            self.log("train_loss_mag", loss_mag, prog_bar=True, on_epoch=True, sync_dist=True)
+            #self.log("train_loss_mag", loss_mag, prog_bar=True, on_epoch=True, sync_dist=True)
 
             loss += self.lambda_mag * loss_mag
 
         if self.lambda_grad > 0:  
             # Gradient Loss for unet_reg
             loss_grad = Grad3d().forward(forward_flow)  
-            self.log("train_loss_grad", loss_grad, prog_bar=True, on_epoch=True, sync_dist=True)
+            #self.log("train_loss_grad", loss_grad, prog_bar=True, on_epoch=True, sync_dist=True)
 
             loss += self.lambda_grad * loss_grad
 
@@ -154,7 +156,7 @@ if __name__ == '__main__':
         subjects = subjects[0:args.max_subj]
 
     training_set = tio.SubjectsDataset(subjects)    
-    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True, num_workers=8, pin_memory=True)
+    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=False, num_workers=8, pin_memory=True)
 
 # Read atlas initialization
     atlas = []
