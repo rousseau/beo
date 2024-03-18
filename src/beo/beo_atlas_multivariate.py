@@ -466,10 +466,12 @@ if __name__ == '__main__':
 
         warped_image = reg_net.transformer(image, backward_flow_im)
         average_atlas += warped_image
-        o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=subjects[i].image_0.affine)
-        o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
-        o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
-        o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
+
+        if len(subjects) < 11:
+            o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=subjects[i].image_0.affine)
+            o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
+            o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
+            o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
 
     average_atlas /= len(subjects)    
     o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=subjects[0].image_0.affine)
