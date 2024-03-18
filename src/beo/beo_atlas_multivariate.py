@@ -435,7 +435,7 @@ if __name__ == '__main__':
         atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
 
         o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
-        o.save(args.output+'_'+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
+        o.save(args.output+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
 
     # Deform each subject at time point 0
     #for i in range(len(subjects)):    
