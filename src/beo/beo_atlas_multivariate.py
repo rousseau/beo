@@ -436,9 +436,13 @@ if __name__ == '__main__':
     for w in weights:
         forward_flow_dyn = reg_net.vecint(forward_velocity_dyn*w)
         atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
-
         o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
         o.save(args.output+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
+
+        atlas_dyn = reg_net.transformer(atlas_0, forward_flow_dyn)
+        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
+        o.save(args.output+exp_name+'_atlas_init_'+str(w.item())+'.nii.gz')
+
 
     # Deform each subject at time point 0
     average_atlas = torch.zeros(atlas_0.shape).to(reg_net.device) 
