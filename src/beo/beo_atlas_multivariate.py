@@ -296,8 +296,12 @@ if __name__ == '__main__':
 
     parser.add_argument('-o', '--output', help='Output prefix filename', type=str, required = True)
 
-    parser.add_argument('--load_unet', help='Input unet model', type=str, required = False)
-    parser.add_argument('--save_unet', help='Output unet model', type=str, required = False)
+    parser.add_argument('--load_unet_atlas', help='Input unet model for atlas generation', type=str, required = False)
+    parser.add_argument('--save_unet_atlas', help='Output unet model for atlas generation', type=str, required = False)
+    parser.add_argument('--load_unet_dyn', help='Input unet model for dynamics', type=str, required = False)
+    parser.add_argument('--save_unet_dyn', help='Output unet model for dynamics', type=str, required = False)
+    parser.add_argument('--load_unet_reg', help='Input unet model for pairwise registration', type=str, required = False)
+    parser.add_argument('--save_unet_reg', help='Output unet model for pairwise registration', type=str, required = False)
 
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
     parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
@@ -353,8 +357,13 @@ if __name__ == '__main__':
         lambda_mag = args.lam_m, 
         lambda_grad= args.lam_g)
     
-    if args.load_unet:
-        reg_net.unet_reg.load_state_dict(torch.load(args.load_unet))
+    if args.load_unet_reg:
+        reg_net.unet_reg.load_state_dict(torch.load(args.load_unet_reg))
+    if args.load_unet_atlas:
+        reg_net.unet_atlas.load_state_dict(torch.load(args.load_unet_atlas))
+    if args.load_unet_dyn:
+        reg_net.unet_dyn.load_state_dict(torch.load(args.load_unet_dyn))
+
 
     trainer_args = {
         'max_epochs' : args.epochs, 
@@ -385,8 +394,12 @@ if __name__ == '__main__':
     
     trainer_reg.fit(reg_net, training_loader)  
 
-    if args.save_unet:
-        torch.save(reg_net.unet.state_dict(), args.save_unet)
+    if args.save_unet_reg:
+        torch.save(reg_net.unet_reg.state_dict(), args.save_unet_reg)
+    if args.save_unet_atlas:
+        torch.save(reg_net.unet_atlas.state_dict(), args.save_unet_atlas)
+    if args.save_unet_dyn:
+        torch.save(reg_net.unet_dyn.state_dict(), args.save_unet_dyn)        
 
 #%%
     exp_name = '_'+str(args.t0)+'_'+str(args.t1)
