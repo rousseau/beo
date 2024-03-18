@@ -385,10 +385,11 @@ if __name__ == '__main__':
 #%% Data loader
     training_set = tio.SubjectsDataset(subjects)
     torch_dataset = CustomDataset(training_set)
+    num_workers = args.accumulate_grad_batches * 2 # 2 workers per item in the batch
     training_loader = torch.utils.data.DataLoader(torch_dataset, 
                                                   batch_size=1, # Pick two images only 
                                                   shuffle=True,
-                                                  num_workers=4,
+                                                  num_workers=num_workers,
                                                   pin_memory=True)
 #%% Training
     
