@@ -55,7 +55,7 @@ class meta_registration_model(pl.LightningModule):
         self.atlas_init = atlas 
         self.unet_atlas = Unet(n_channels = 1, n_classes = 3, n_features = 32)
         
-        self.learn_atlas = False
+        self.learn_atlas = True
         self.learn_dyn = False
 
         self.loss = []
