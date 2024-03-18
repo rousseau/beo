@@ -449,7 +449,9 @@ if __name__ == '__main__':
 
 #%%
     # Inference
-    
+    reg_net.eval()
+    reg_net.to('cuda')
+
     # Compute the atlas at time point 0 
     atlas_0 = reg_net.atlas_init[0].to(reg_net.device)
     o = tio.ScalarImage(tensor=atlas_0[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
