@@ -134,7 +134,7 @@ class meta_registration_model(pl.LightningModule):
             forward_flow_tp2 = torch.zeros(flow_shape,device=self.device)
             backward_flow_tp1 = torch.zeros(flow_shape,device=self.device)
             backward_flow_tp2 = torch.zeros(flow_shape,device=self.device)
-            
+
 
         # Compute the flow between image 1 and atlas at time point of image 1
         x = torch.cat([atlas_tp1, tio_im1['image_0'][tio.DATA]], dim=1)
@@ -301,6 +301,9 @@ class meta_registration_model(pl.LightningModule):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Multivariate Registration 3D Image Pair')
     parser.add_argument('-t', '--tsv_file', help='tsv file ', type=str, required = True)
+    parser.add_argument('--max', help='Maximum age of the subjects in week', type=float, required = False, default=40)
+    parser.add_argument('--min', help='Minimum age of the subjects in week', type=float, required = False, default=10)
+
     parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
     parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=32)
 
@@ -349,16 +352,18 @@ if __name__ == '__main__':
 
     for index, row in df.iterrows():
 
-        subject = tio.Subject(
-            image_0=tio.ScalarImage(row['image']),
-            image_1=tio.ScalarImage(row['onehot']),
-            age= a * row["age"] + b
-        )
-        print(row['image'])
-        print(row['onehot'])
-        print(a * row["age"] + b)
+        if row["age"] < args.max and row["age"] > args.min:
+            
+            subject = tio.Subject(
+                image_0=tio.ScalarImage(row['image']),
+                image_1=tio.ScalarImage(row['onehot']),
+                age= a * row["age"] + b
+            )
+            print(row['image'])
+            print(row['onehot'])
+            print(a * row["age"] + b)
 
-        subjects.append(subject) 
+            subjects.append(subject) 
 
     print(len(subjects), 'subjects')
 
@@ -441,7 +446,7 @@ if __name__ == '__main__':
     # Compute the atlas at time point 0 
     atlas_0 = reg_net.atlas_init[0].to(reg_net.device)
     o = tio.ScalarImage(tensor=atlas_0[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
-    o.save(args.output+'_'+exp_name+'_atlas_init.nii.gz')
+    o.save(args.output+exp_name+'_atlas_init.nii.gz')
 
     # Prediction of the flow to deform the init atlas
     forward_velocity_atlas = reg_net.unet_atlas(atlas_0)
@@ -449,7 +454,7 @@ if __name__ == '__main__':
     # Deform the initial atlas to get atlas at time point 0
     atlas_def = reg_net.transformer(atlas_0, forward_flow_atlas)
     o = tio.ScalarImage(tensor=atlas_def[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
-    o.save(args.output+'_'+exp_name+'_atlas_def.nii.gz')
+    o.save(args.output+exp_name+'_atlas_def.nii.gz')
 
     # Compute atlas at different time points (-1, -0.5, 0, 0.5, 1)
     weights = torch.Tensor([-1,-0.5,0,0.5,1]).to(reg_net.device)
