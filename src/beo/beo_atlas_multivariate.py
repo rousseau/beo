@@ -44,7 +44,7 @@ class meta_registration_model(pl.LightningModule):
 
         # Network for registration between images and atlas
         self.unet_reg = Unet(n_channels = 2, n_classes = 3, n_features = 32)
-        self.unet_reg.freeze()
+        #self.unet_reg.freeze()
 
         # Network for dynamical model of the mean trajectory
         self.unet_dyn = Unet(n_channels = 1, n_classes = 3, n_features = 32)
