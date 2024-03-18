@@ -441,6 +441,7 @@ if __name__ == '__main__':
         o.save(args.output+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
 
     # Deform each subject at time point 0
+    average_atlas = torch.zeros(atlas_0.shape).to(reg_net.device) 
     for i in range(len(subjects)):            
         image = torch.unsqueeze(subjects[i].image_0.data,0)
         w = subjects[i].age
@@ -456,9 +457,11 @@ if __name__ == '__main__':
         backward_flow_im = reg_net.vecint(backward_velocity_im)
 
         warped_image = reg_net.transformer(image, backward_flow_im)
+        average_atlas += warped_image
         o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=subjects[i].image_0.affine)
         o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
-
+    o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=subjects[0].image_0.affine)
+    o.save(args.output+exp_name+'_average_atlas.nii.gz')
 
         
     
