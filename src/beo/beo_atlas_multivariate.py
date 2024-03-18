@@ -53,7 +53,9 @@ class meta_registration_model(pl.LightningModule):
         # atlas should be a list of 5D tensors (same shape as the input images)
         self.atlas_init = atlas 
         self.unet_atlas = Unet(n_channels = 1, n_classes = 3, n_features = 32)
+        
         self.learn_atlas = False
+        self.learn_dyn = False
 
         self.loss = []
         for l in loss:
@@ -88,7 +90,8 @@ class meta_registration_model(pl.LightningModule):
     
     def training_step(self, batch):
         # Temporal version
-        
+        flow_shape = [1,3]+list(self.shape)
+
         # Compute atlas at time point 0
         # Get initial loaded atlas
         atlas_0 = self.atlas_init[0].to(self.device)
@@ -101,25 +104,37 @@ class meta_registration_model(pl.LightningModule):
             atlas_def = self.transformer(atlas_0, forward_flow_atlas)
         else:
             atlas_def = atlas_0
+            forward_flow_atlas = torch.zeros(flow_shape,device=self.device)
+
+
 
         # Get image pair
         tio_im1, tio_im2 = batch
         
-        # Get dynamics 
-        forward_velocity_dyn = self.unet_dyn(atlas_def)
-        backward_velocity_dyn = - forward_velocity_dyn
+        if self.learn_dyn is True :
+            # Get dynamics 
+            forward_velocity_dyn = self.unet_dyn(atlas_def)
+            backward_velocity_dyn = - forward_velocity_dyn
 
-        # Compute the atlas at time point of image 1        
-        w_tp1 = tio_im1['age'].float()
-        forward_flow_tp1 = self.vecint(w_tp1 * forward_velocity_dyn)
-        backward_flow_tp1 = self.vecint(w_tp1 * backward_velocity_dyn)
-        atlas_tp1 = self.transformer(atlas_def, forward_flow_tp1)
+            # Compute the atlas at time point of image 1        
+            w_tp1 = tio_im1['age'].float()
+            forward_flow_tp1 = self.vecint(w_tp1 * forward_velocity_dyn)
+            backward_flow_tp1 = self.vecint(w_tp1 * backward_velocity_dyn)
+            atlas_tp1 = self.transformer(atlas_def, forward_flow_tp1)
 
-        # Compute the atlas at time point of image 2
-        w_tp2 = tio_im2['age'].float()
-        forward_flow_tp2 = self.vecint(w_tp2 * forward_velocity_dyn)
-        backward_flow_tp2 = self.vecint(w_tp2 * backward_velocity_dyn)
-        atlas_tp2 = self.transformer(atlas_def, forward_flow_tp2)
+            # Compute the atlas at time point of image 2
+            w_tp2 = tio_im2['age'].float()
+            forward_flow_tp2 = self.vecint(w_tp2 * forward_velocity_dyn)
+            backward_flow_tp2 = self.vecint(w_tp2 * backward_velocity_dyn)
+            atlas_tp2 = self.transformer(atlas_def, forward_flow_tp2)
+        else:
+            atlas_tp1 = atlas_def
+            atlas_tp2 = atlas_def
+            forward_flow_tp1 = torch.zeros(flow_shape,device=self.device)
+            forward_flow_tp2 = torch.zeros(flow_shape,device=self.device)
+            backward_flow_tp1 = torch.zeros(flow_shape,device=self.device)
+            backward_flow_tp2 = torch.zeros(flow_shape,device=self.device)
+            
 
         # Compute the flow between image 1 and atlas at time point of image 1
         x = torch.cat([atlas_tp1, tio_im1['image_0'][tio.DATA]], dim=1)
@@ -172,12 +187,9 @@ class meta_registration_model(pl.LightningModule):
         loss = loss / len(self.loss)
 
         if self.lambda_mag > 0:
-            if self.learn_atlas is True : 
-                # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
-                loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)
-                self.log("train_loss_mag_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
-            else : 
-                loss_mag_atlas = 0    
+            # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
+            loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)
+            self.log("train_loss_mag_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
 
             # Magnitude Loss for unet_dyn (i.e. dynamical model of the mean trajectory)
             loss_mag_dyn = F.mse_loss(torch.zeros(forward_flow_tp1.shape,device=self.device),forward_flow_tp1) 
