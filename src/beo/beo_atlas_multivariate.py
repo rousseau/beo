@@ -45,7 +45,7 @@ class meta_registration_model(pl.LightningModule):
         # Network for registration between images and atlas
         self.unet_reg = Unet(n_channels = 2, n_classes = 3, n_features = 32)
         self.unet_reg.freeze()
-        
+
         # Network for dynamical model of the mean trajectory
         self.unet_dyn = Unet(n_channels = 1, n_classes = 3, n_features = 32)
 
@@ -431,6 +431,7 @@ if __name__ == '__main__':
     # Compute atlas at different time points (-1, -0.5, 0, 0.5, 1)
     weights = torch.Tensor([-1,-0.5,0,0.5,1]).to(reg_net.device)
     forward_velocity_dyn = reg_net.unet_dyn(atlas_def)
+    backward_velocity_dyn = - forward_velocity_dyn
 
     for w in weights:
         forward_flow_dyn = reg_net.vecint(forward_velocity_dyn*w)
@@ -440,10 +441,24 @@ if __name__ == '__main__':
         o.save(args.output+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
 
     # Deform each subject at time point 0
-    #for i in range(len(subjects)):    
-        # Deform the atlas at the corresponding age
-        
-        #image = torch.unsqueeze(subjects[i].image_0.data,0)
+    for i in range(len(subjects)):            
+        image = torch.unsqueeze(subjects[i].image_0.data,0)
+        w = subjects[i].age.float()
+        forward_flow_dyn = reg_net.vecint(w * forward_velocity_dyn)
+        backward_flow_dyn = reg_net.vecint(w * backward_velocity_dyn)
+        atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
+
+        x = torch.cat([atlas_dyn, image], dim=1)
+        forward_velocity_im = reg_net.unet_reg(x)
+        #forward_flow_im = reg_net.vecint(forward_velocity_im)        
+        backward_velocity_im = - forward_velocity_im
+        backward_flow_im = reg_net.vecint(backward_velocity_im)
+
+        warped_image = reg_net.transformer(image, backward_flow_im)
+        o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=subjects[i].image_0.affine)
+        o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
+
+
         
     
 
