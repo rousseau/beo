@@ -428,7 +428,7 @@ if __name__ == '__main__':
     
     # Compute the atlas at time point 0 
     atlas_0 = reg_net.atlas_init[0].to(reg_net.device)
-    o = tio.ScalarImage(tensor=atlas_0[0].detach().numpy(), affine=subjects[0].image_0.affine)
+    o = tio.ScalarImage(tensor=atlas_0[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
     o.save(args.output+'_'+exp_name+'_atlas_init.nii.gz')
 
     # Prediction of the flow to deform the init atlas
@@ -436,7 +436,7 @@ if __name__ == '__main__':
     forward_flow_atlas = reg_net.vecint(forward_velocity_atlas)
     # Deform the initial atlas to get atlas at time point 0
     atlas_def = reg_net.transformer(atlas_0, forward_flow_atlas)
-    o = tio.ScalarImage(tensor=atlas_def[0].detach().numpy(), affine=subjects[0].image_0.affine)
+    o = tio.ScalarImage(tensor=atlas_def[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
     o.save(args.output+'_'+exp_name+'_atlas_def.nii.gz')
 
     # Compute atlas at different time points (-1, -0.5, 0, 0.5, 1)
@@ -447,11 +447,11 @@ if __name__ == '__main__':
     for w in weights:
         forward_flow_dyn = reg_net.vecint(forward_velocity_dyn*w)
         atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
-        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
+        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
         o.save(args.output+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
 
         atlas_dyn = reg_net.transformer(atlas_0, forward_flow_dyn)
-        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
+        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
         o.save(args.output+exp_name+'_atlas_init_'+str(w.item())+'.nii.gz')
 
 
@@ -475,13 +475,13 @@ if __name__ == '__main__':
         average_atlas += warped_image
 
         if len(subjects) < 11:
-            o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=subjects[i].image_0.affine)
+            o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
             o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
             o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
             o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
 
     average_atlas /= len(subjects)    
-    o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=subjects[0].image_0.affine)
+    o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
     o.save(args.output+exp_name+'_average_atlas.nii.gz')
 
         
