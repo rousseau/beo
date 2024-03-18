@@ -173,7 +173,7 @@ class meta_registration_model(pl.LightningModule):
 
                 # Losses in image space and atlas space
                 loss_image_space = self.loss[i](warped_atlas_im1, im1) + self.loss[i](warped_atlas_im2, im2)
-                loss_atlas_space = self.loss[i](warped_image_im1, atlas_tp1) + self.loss[i](warped_image_im2, atlas_tp2)
+                loss_atlas_space = self.loss[i](warped_image_im1, atlas_tp1_i) + self.loss[i](warped_image_im2, atlas_tp2_i)
 
                 # Deform images at time point 0
                 warped_image_im1_t0 = self.transformer(warped_image_im1, backward_flow_tp1)
