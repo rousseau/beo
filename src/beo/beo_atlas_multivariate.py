@@ -158,12 +158,17 @@ class meta_registration_model(pl.LightningModule):
                 im1 = tio_im1['image_'+str(i)][tio.DATA]
                 im2 = tio_im2['image_'+str(i)][tio.DATA]
 
+                atlas_i = self.atlas_init[i].to(self.device)
+                atlas_def_i = self.transformer(atlas_i, forward_flow_atlas)
+
                 # Deform the atlas at time point of image 1
-                warped_atlas_im1 = self.transformer(atlas_tp1, forward_flow_im1)
+                atlas_tp1_i = self.transformer(atlas_def_i, forward_flow_tp1)
+                warped_atlas_im1 = self.transformer(atlas_tp1_i, forward_flow_im1)
                 warped_image_im1 = self.transformer(im1, backward_flow_im1)
 
                 # Deform the atlas at time point of image 2
-                warped_atlas_im2 = self.transformer(atlas_tp2, forward_flow_im2)
+                atlas_tp2_i = self.transformer(atlas_def_i, forward_flow_tp2)
+                warped_atlas_im2 = self.transformer(atlas_tp2_i, forward_flow_im2)
                 warped_image_im2 = self.transformer(im2, backward_flow_im2)
 
                 # Losses in image space and atlas space
@@ -498,6 +503,7 @@ if __name__ == '__main__':
             o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
 
     average_atlas /= len(subjects)    
+    print('Saving average atlas')
     o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
     o.save(args.output+exp_name+'_average_atlas.nii.gz')
 
