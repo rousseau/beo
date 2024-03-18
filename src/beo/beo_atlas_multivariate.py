@@ -443,7 +443,8 @@ if __name__ == '__main__':
     # Deform each subject at time point 0
     for i in range(len(subjects)):            
         image = torch.unsqueeze(subjects[i].image_0.data,0)
-        w = subjects[i].age.float()
+        w = subjects[i].age
+        print(w)
         forward_flow_dyn = reg_net.vecint(w * forward_velocity_dyn)
         backward_flow_dyn = reg_net.vecint(w * backward_velocity_dyn)
         atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
