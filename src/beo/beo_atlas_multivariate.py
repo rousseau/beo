@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 from torch.utils.data import Dataset
+import numpy
 
 import pytorch_lightning as pl
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -479,7 +480,7 @@ if __name__ == '__main__':
 
 
     # Deform each subject at time point 0
-    average_atlas = torch.zeros(atlas_0.shape).to(reg_net.device) 
+    average_atlas = numpy.zeros(atlas_0.shape)
     for i in range(len(subjects)):            
         image = torch.unsqueeze(subjects[i].image_0.data,0)
         w = subjects[i].age
@@ -494,7 +495,6 @@ if __name__ == '__main__':
         backward_flow_im = reg_net.vecint(backward_velocity_im)
 
         warped_image = reg_net.transformer(image, backward_flow_im)
-        average_atlas += warped_image
 
         if len(subjects) < 11:
             o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
@@ -502,9 +502,11 @@ if __name__ == '__main__':
             o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
             o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
 
+        average_atlas += warped_image.detach().numpy()
+
     average_atlas /= len(subjects)    
     print('Saving average atlas')
-    o = tio.ScalarImage(tensor=average_atlas[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
+    o = tio.ScalarImage(tensor=average_atlas[0], affine=tio.ScalarImage(args.atlas[0]).affine)
     o.save(args.output+exp_name+'_average_atlas.nii.gz')
 
         
