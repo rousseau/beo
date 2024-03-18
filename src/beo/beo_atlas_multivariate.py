@@ -44,7 +44,6 @@ class meta_registration_model(pl.LightningModule):
 
         # Network for registration between images and atlas
         self.unet_reg = Unet(n_channels = 2, n_classes = 3, n_features = 32)
-        #self.unet_reg.freeze()
 
         # Network for dynamical model of the mean trajectory
         self.unet_dyn = Unet(n_channels = 1, n_classes = 3, n_features = 32)
@@ -54,6 +53,7 @@ class meta_registration_model(pl.LightningModule):
         # atlas should be a list of 5D tensors (same shape as the input images)
         self.atlas_init = atlas 
         self.unet_atlas = Unet(n_channels = 1, n_classes = 3, n_features = 32)
+        self.learn_atlas = False
 
         self.loss = []
         for l in loss:
@@ -85,19 +85,23 @@ class meta_registration_model(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         return optimizer
-
+    
     def training_step(self, batch):
         # Temporal version
         
         # Compute atlas at time point 0
         # Get initial loaded atlas
         atlas_0 = self.atlas_init[0].to(self.device)
-        # Prediction of the flow to deform the init atlas
-        forward_velocity_atlas = self.unet_atlas(atlas_0)
-        forward_flow_atlas = self.vecint(forward_velocity_atlas)
-        # Deform the initial atlas to get atlas at time point 0
-        atlas_def = self.transformer(atlas_0, forward_flow_atlas)
-        
+
+        if self.learn_atlas is True : 
+            # Prediction of the flow to deform the init atlas
+            forward_velocity_atlas = self.unet_atlas(atlas_0)
+            forward_flow_atlas = self.vecint(forward_velocity_atlas)
+            # Deform the initial atlas to get atlas at time point 0
+            atlas_def = self.transformer(atlas_0, forward_flow_atlas)
+        else:
+            atlas_def = atlas_0
+
         # Get image pair
         tio_im1, tio_im2 = batch
         
@@ -168,9 +172,12 @@ class meta_registration_model(pl.LightningModule):
         loss = loss / len(self.loss)
 
         if self.lambda_mag > 0:
-            # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
-            loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)
-            self.log("train_loss_mag_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+            if self.learn_atlas is True : 
+                # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
+                loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)
+                self.log("train_loss_mag_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+            else : 
+                loss_mag_atlas = 0    
 
             # Magnitude Loss for unet_dyn (i.e. dynamical model of the mean trajectory)
             loss_mag_dyn = F.mse_loss(torch.zeros(forward_flow_tp1.shape,device=self.device),forward_flow_tp1) 
