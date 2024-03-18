@@ -345,7 +345,7 @@ if __name__ == '__main__':
     # t0 25 : 0
     # t1 29 : 1
     # ax+b -> a=1/4, b=-25/4
-    a = 1/(args.t1-args.t0)
+    a = 1.0/(args.t1-args.t0)
     b = -args.t0/(args.t1-args.t0)
 
     subjects = []
@@ -361,6 +361,7 @@ if __name__ == '__main__':
             )
             print(row['image'])
             print(row['onehot'])
+            print(row['age'])
             print(a * row["age"] + b)
 
             subjects.append(subject) 
@@ -484,7 +485,6 @@ if __name__ == '__main__':
 
         x = torch.cat([atlas_dyn, image], dim=1)
         forward_velocity_im = reg_net.unet_reg(x)
-        #forward_flow_im = reg_net.vecint(forward_velocity_im)        
         backward_velocity_im = - forward_velocity_im
         backward_flow_im = reg_net.vecint(backward_velocity_im)
 
