@@ -45,6 +45,9 @@ class meta_registration_model(pl.LightningModule):
         # Network for registration between images and atlas
         self.unet_reg = Unet(n_channels = 2, n_classes = 3, n_features = 32)
 
+        # Network for dynamical model of the mean trajectory
+        self.unet_dyn = Unet(n_channels = 1, n_classes = 3, n_features = 32)
+
         # Network for deforming the initial atlas
         #self.atlas = nn.Parameter(torch.randn(shape).unsqueeze(0).unsqueeze(0)) # Random initialization
         # atlas should be a list of 5D tensors (same shape as the input images)
@@ -83,7 +86,128 @@ class meta_registration_model(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch):
-        # Get the images and initialize the optimizers
+        # Temporal version
+        
+        # Compute atlas at time point 0
+        # Get initial loaded atlas
+        atlas_0 = self.atlas_init[0].to(self.device)
+        # Prediction of the flow to deform the init atlas
+        forward_velocity_atlas = self.unet_atlas(atlas_0)
+        forward_flow_atlas = self.vecint(forward_velocity_atlas)
+        # Deform the initial atlas to get atlas at time point 0
+        atlas_def = self.transformer(atlas_0, forward_flow_atlas)
+        
+        # Get image pair
+        tio_im1, tio_im2 = batch
+        
+        # Get dynamics 
+        forward_velocity_dyn = self.unet_dyn(atlas_def)
+        backward_velocity_dyn = - forward_velocity_dyn
+
+        # Compute the atlas at time point of image 1        
+        w_tp1 = tio_im1['age'].float()
+        forward_flow_tp1 = self.vecint(w_tp1 * forward_velocity_dyn)
+        backward_flow_tp1 = self.vecint(w_tp1 * backward_velocity_dyn)
+        atlas_tp1 = self.transformer(atlas_def, forward_flow_tp1)
+
+        # Compute the atlas at time point of image 2
+        w_tp2 = tio_im2['age'].float()
+        forward_flow_tp2 = self.vecint(w_tp2 * forward_velocity_dyn)
+        backward_flow_tp2 = self.vecint(w_tp2 * backward_velocity_dyn)
+        atlas_tp2 = self.transformer(atlas_def, forward_flow_tp2)
+
+        # Compute the flow between image 1 and atlas at time point of image 1
+        x = torch.cat([atlas_tp1, tio_im1['image_0'][tio.DATA]], dim=1)
+        forward_velocity_im1 = self.unet_reg(x)
+        forward_flow_im1 = self.vecint(forward_velocity_im1)        
+        backward_velocity_im1 = - forward_velocity_im1
+        backward_flow_im1 = self.vecint(backward_velocity_im1)
+
+        # Compute the flow between image 2 and atlas at time point of image 2
+        x = torch.cat([atlas_tp2, tio_im2['image_0'][tio.DATA]], dim=1)
+        forward_velocity_im2 = self.unet_reg(x)
+        forward_flow_im2 = self.vecint(forward_velocity_im2)
+        backward_velocity_im2 = - forward_velocity_im2
+        backward_flow_im2 = self.vecint(backward_velocity_im2)
+
+        # Compute Losses
+        loss = 0
+        for i in range(len(self.loss)):
+            if self.lambda_loss[i] > 0:
+                
+                im1 = tio_im1['image_'+str(i)][tio.DATA]
+                im2 = tio_im2['image_'+str(i)][tio.DATA]
+
+                # Deform the atlas at time point of image 1
+                warped_atlas_im1 = self.transformer(atlas_tp1, forward_flow_im1)
+                warped_image_im1 = self.transformer(im1, backward_flow_im1)
+
+                # Deform the atlas at time point of image 2
+                warped_atlas_im2 = self.transformer(atlas_tp2, forward_flow_im2)
+                warped_image_im2 = self.transformer(im2, backward_flow_im2)
+
+                # Losses in image space and atlas space
+                loss_image_space = self.loss[i](warped_atlas_im1, im1) + self.loss[i](warped_atlas_im2, im2)
+                loss_atlas_space = self.loss[i](warped_image_im1, atlas_tp1) + self.loss[i](warped_image_im2, atlas_tp2)
+
+                # Deform images at time point 0
+                warped_image_im1_t0 = self.transformer(warped_image_im1, backward_flow_tp1)
+                warped_image_im2_t0 = self.transformer(warped_image_im2, backward_flow_tp2)
+                # Loss in atlas space, not depending on the atlas
+                loss_pair_atlas_space_t0 = self.loss[i](warped_image_im1_t0, warped_image_im2_t0) 
+
+                # Should add loss in image space ?
+
+                self.log('loss_image_space_'+str(i), loss_image_space, prog_bar=True)
+                self.log('loss_atlas_space_'+str(i), loss_atlas_space, prog_bar=True)
+                self.log('loss_pair_atlas_space_t0_'+str(i), loss_pair_atlas_space_t0, prog_bar=True)
+
+                loss += self.lambda_loss[i] * (loss_image_space + loss_atlas_space + loss_pair_atlas_space_t0)
+
+        loss = loss / len(self.loss)
+
+        if self.lambda_mag > 0:
+            # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
+            loss_mag_atlas = F.mse_loss(torch.zeros(forward_flow_atlas.shape,device=self.device),forward_flow_atlas)
+            self.log("train_loss_mag_atlas", loss_mag_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            # Magnitude Loss for unet_dyn (i.e. dynamical model of the mean trajectory)
+            loss_mag_dyn = F.mse_loss(torch.zeros(forward_flow_tp1.shape,device=self.device),forward_flow_tp1) 
+            loss_mag_dyn+= F.mse_loss(torch.zeros(forward_flow_tp2.shape,device=self.device),forward_flow_tp2)    
+            loss_mag_dyn/= 2.0 # Average over the two time points
+            self.log("train_loss_mag_dyn", loss_mag_dyn, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            # Magnitude Loss for unet_reg (i.e. registration between images and atlas)
+            loss_mag_reg = F.mse_loss(torch.zeros(forward_flow_im1.shape,device=self.device),forward_flow_im1)
+            loss_mag_reg+= F.mse_loss(torch.zeros(forward_flow_im2.shape,device=self.device),forward_flow_im2)
+            loss_mag_reg/= 2.0 # Average over the two time points
+            self.log("train_loss_mag_reg", loss_mag_reg, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            loss += self.lambda_mag * (loss_mag_atlas + loss_mag_dyn + loss_mag_reg)
+
+        if self.lambda_grad > 0:
+            # Gradient Loss for unet_atlas
+            loss_grad_atlas = Grad3d().forward(forward_flow_atlas)
+            self.log("train_loss_grad_atlas", loss_grad_atlas, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            # Gradient Loss for unet_dyn
+            loss_grad_dyn = Grad3d().forward(forward_flow_tp1)
+            loss_grad_dyn+= Grad3d().forward(forward_flow_tp2)
+            loss_grad_dyn/= 2.0    
+            self.log("train_loss_grad_dyn", loss_grad_dyn, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            # Gradient Loss for unet_reg
+            loss_grad_reg = Grad3d().forward(forward_flow_im1)
+            loss_grad_reg+= Grad3d().forward(forward_flow_im2)
+            loss_grad_reg/= 2.0
+            self.log("train_loss_grad_reg", loss_grad_reg, prog_bar=True, on_epoch=True, sync_dist=True)
+
+            loss += self.lambda_grad * (loss_grad_atlas + loss_grad_dyn + loss_grad_reg)
+
+
+        # Static version
+        '''
+        # Get the images
         tio_im1, tio_im2 = batch
         images = torch.cat([tio_im1['image_0'][tio.DATA],tio_im2['image_0'][tio.DATA]], dim=0)
         batch_size = images.shape[0]
@@ -127,7 +251,7 @@ class meta_registration_model(pl.LightningModule):
                 loss += self.lambda_loss[i] * atlas_loss
         loss = loss / len(self.loss)
 
-        # Note: lambda should be different for unet_reg and unet_atlas since one is inter-subject registration
+        # Note: lambda should be different for unet_reg and unet_atlas since one is inter-subject registration (but with close age)
         # and the other one is intra-subject registration (deformation of the atlas)
         if self.lambda_mag > 0:  
             # Magnitude Loss for unet_reg
@@ -149,6 +273,7 @@ class meta_registration_model(pl.LightningModule):
 
             loss += self.lambda_grad * (loss_grad + loss_grad_atlas)
 
+        '''    
         return loss
 
 
@@ -156,6 +281,10 @@ class meta_registration_model(pl.LightningModule):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Multivariate Registration 3D Image Pair')
     parser.add_argument('-t', '--tsv_file', help='tsv file ', type=str, required = True)
+    parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
+    parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=32)
+
+    parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
     parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=1)
@@ -164,8 +293,6 @@ if __name__ == '__main__':
     parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
     parser.add_argument('--lam_m', help='Lambda loss for flow magnitude', type=float, required = False, default=0.1)
     parser.add_argument('--lam_g', help='Lambda loss for flow gradient', type=float, required = False, default=1)
-
-    parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
     parser.add_argument('-o', '--output', help='Output prefix filename', type=str, required = True)
 
@@ -185,14 +312,27 @@ if __name__ == '__main__':
 #%% Load data
     df = pd.read_csv(args.tsv_file, sep='\t')
 
+    # Convert linearly age to [0,1] SVF interval
+    # Example
+    # t0 25 : 0
+    # t1 29 : 1
+    # ax+b -> a=1/4, b=-25/4
+    a = 1/(args.t1-args.t0)
+    b = -args.t0/(args.t1-args.t0)
+
     subjects = []
 
     for index, row in df.iterrows():
 
         subject = tio.Subject(
             image_0=tio.ScalarImage(row['image']),
-            image_1=tio.ScalarImage(row['onehot'])
+            image_1=tio.ScalarImage(row['onehot']),
+            age= a * row["age"] + b
         )
+        print(row['image'])
+        print(row['onehot'])
+        print(a * row["age"] + b)
+
         subjects.append(subject) 
 
     print(len(subjects), 'subjects')
@@ -249,24 +389,46 @@ if __name__ == '__main__':
         torch.save(reg_net.unet.state_dict(), args.save_unet)
 
 #%%
+    exp_name = '_'+str(args.t0)+'_'+str(args.t1)
+    exp_name += '_e'+str(args.epochs)
+    for i in range(len(args.loss)):
+        exp_name += '_'+args.loss[i]
+        exp_name += '_' + str(args.lam_l[i])
+    exp_name += '_lamm'+str(args.lam_m)
+    exp_name += '_lamg'+str(args.lam_g)
+
+#%%
     # Inference
+    
+    # Compute the atlas at time point 0 
     atlas_0 = reg_net.atlas_init[0].to(reg_net.device)
+    o = tio.ScalarImage(tensor=atlas_0[0].detach().numpy(), affine=subjects[0].image_0.affine)
+    o.save(args.output+'_'+exp_name+'_atlas_init.nii.gz')
+
+    # Prediction of the flow to deform the init atlas
     forward_velocity_atlas = reg_net.unet_atlas(atlas_0)
     forward_flow_atlas = reg_net.vecint(forward_velocity_atlas)
+    # Deform the initial atlas to get atlas at time point 0
     atlas_def = reg_net.transformer(atlas_0, forward_flow_atlas)
-
     o = tio.ScalarImage(tensor=atlas_def[0].detach().numpy(), affine=subjects[0].image_0.affine)
-    o.save(args.output+'_atlas.nii.gz')
+    o.save(args.output+'_'+exp_name+'_atlas_def.nii.gz')
 
-    '''
-    for i in range(len(subjects)):
-        inference_subject = subjects[i]
-        image = torch.unsqueeze(inference_subject.image_0.data,0)
-        warped_atlas, warped_image, forward_flow, backward_flow = reg_net.forward(image)
+    # Compute atlas at different time points (-1, -0.5, 0, 0.5, 1)
+    weights = torch.Tensor([-1,-0.5,0,0.5,1]).to(reg_net.device)
+    forward_velocity_dyn = reg_net.unet_dyn(atlas_def)
 
-        o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=inference_subject.image_0.affine)
-        o.save(args.output+'_warped_image_'+str(i)+'.nii.gz')
-    '''    
+    for w in weights:
+        forward_flow_dyn = reg_net.vecint(forward_velocity_dyn*w)
+        atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
+
+        o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=subjects[0].image_0.affine)
+        o.save(args.output+'_'+exp_name+'_atlas_'+str(w.item())+'.nii.gz')
+
+    # Deform each subject at time point 0
+    #for i in range(len(subjects)):    
+        # Deform the atlas at the corresponding age
+        
+        #image = torch.unsqueeze(subjects[i].image_0.data,0)
         
     
 
