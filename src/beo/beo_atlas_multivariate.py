@@ -332,6 +332,8 @@ if __name__ == '__main__':
     parser.add_argument('--load_unet_reg', help='Input unet model for pairwise registration', type=str, required = False)
     parser.add_argument('--save_unet_reg', help='Output unet model for pairwise registration', type=str, required = False)
 
+    parser.add_argument('--average-atlas', action=argparse.BooleanOptionalAction)
+
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
     parser.add_argument('--precision', help='Precision for Lightning trainer (16, 32 or 64)', type=int, required = False, default=32)
     parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
@@ -480,34 +482,35 @@ if __name__ == '__main__':
         o.save(args.output+exp_name+'_atlas_init_'+str(w.item())+'.nii.gz')
 
 
-    # Deform each subject at time point 0
-    average_atlas = numpy.zeros(atlas_0.shape)
-    for i in range(len(subjects)):            
-        image = torch.unsqueeze(subjects[i].image_0.data,0)
-        w = subjects[i].age
-        print(w)
-        forward_flow_dyn = reg_net.vecint(w * forward_velocity_dyn)
-        atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
+    if args.average_atlas:
+        # Deform each subject at time point 0
+        average_atlas = numpy.zeros(atlas_0.shape)
+        for i in range(len(subjects)):            
+            image = torch.unsqueeze(subjects[i].image_0.data,0)
+            w = subjects[i].age
+            print(w)
+            forward_flow_dyn = reg_net.vecint(w * forward_velocity_dyn)
+            atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
 
-        x = torch.cat([atlas_dyn, image], dim=1)
-        forward_velocity_im = reg_net.unet_reg(x)
-        backward_velocity_im = - forward_velocity_im
-        backward_flow_im = reg_net.vecint(backward_velocity_im)
+            x = torch.cat([atlas_dyn, image], dim=1)
+            forward_velocity_im = reg_net.unet_reg(x)
+            backward_velocity_im = - forward_velocity_im
+            backward_flow_im = reg_net.vecint(backward_velocity_im)
 
-        warped_image = reg_net.transformer(image, backward_flow_im)
+            warped_image = reg_net.transformer(image, backward_flow_im)
 
-        if len(subjects) < 11:
-            o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
-            o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
-            o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
-            o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
+            if len(subjects) < 11:
+                o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
+                o.save(args.output+exp_name+'_warped_'+str(i)+'.nii.gz')
+                o = tio.ScalarImage(tensor=image[0].detach().numpy(), affine=subjects[i].image_0.affine)
+                o.save(args.output+exp_name+'_image_'+str(i)+'.nii.gz')
 
-        average_atlas += warped_image.detach().numpy()
+            average_atlas += warped_image.detach().numpy()
 
-    average_atlas /= len(subjects)    
-    print('Saving average atlas')
-    o = tio.ScalarImage(tensor=average_atlas[0], affine=tio.ScalarImage(args.atlas[0]).affine)
-    o.save(args.output+exp_name+'_average_atlas.nii.gz')
+        average_atlas /= len(subjects)    
+        print('Saving average atlas')
+        o = tio.ScalarImage(tensor=average_atlas[0], affine=tio.ScalarImage(args.atlas[0]).affine)
+        o.save(args.output+exp_name+'_average_atlas.nii.gz')
 
         
     
