@@ -61,16 +61,6 @@ class meta_registration_model(pl.LightningModule):
 
         self.use_dynamics = False
 
-        if self.learn_reg is False:
-            print('Parameters for unet_reg are frozen')
-            for param in self.unet_reg.parameters():
-                param.requires_grad = False
-
-        if self.learn_dyn is False:
-            print('Parameters for unet_dyn are frozen')
-            for param in self.unet_dyn.parameters():
-                param.requires_grad = False
-
         self.loss = []
         for l in loss:
             self.loss.append(GetLoss(l))
@@ -438,6 +428,15 @@ if __name__ == '__main__':
     if args.learn_reg:
         reg_net.learn_reg = True
 
+    if reg_net.learn_reg is False:
+        print('Parameters for unet_reg are frozen')
+        for param in reg_net.unet_reg.parameters():
+            param.requires_grad = False
+
+    if reg_net.learn_dyn is False:
+        print('Parameters for unet_dyn are frozen')
+        for param in reg_net.unet_dyn.parameters():
+            param.requires_grad = False
 #%%
     trainer_args = {
         'max_epochs' : args.epochs, 
