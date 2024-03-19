@@ -163,7 +163,7 @@ class meta_registration_model(pl.LightningModule):
         backward_flow_im2 = self.vecint(backward_velocity_im2)
 
         # Compute Losses
-        loss = 0
+        loss = torch.zeros(1,device=self.device)
         for i in range(len(self.loss)):
             if self.lambda_loss[i] > 0:
                 
@@ -202,6 +202,7 @@ class meta_registration_model(pl.LightningModule):
                 loss += self.lambda_loss[i] * (loss_image_space + loss_atlas_space + loss_pair_atlas_space_t0)
 
         loss = loss / len(self.loss)
+        print('Loss:',loss.item())
 
         if self.lambda_mag > 0:
             # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
