@@ -325,7 +325,7 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
-    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=1)
+    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=32)
 
     parser.add_argument('-l', '--loss', help='Similarity (mse, mae, ncc, lncc)', type=str, action='append', required = True)
     parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
