@@ -192,7 +192,6 @@ class meta_registration_model(pl.LightningModule):
                 loss += self.lambda_loss[i] * (loss_image_space + loss_atlas_space + loss_pair_atlas_space_t0)
 
         loss = loss / len(self.loss)
-        print('Loss:',loss.item())
 
         if self.lambda_mag > 0:
             # Magnitude Loss for unet_atlas (i.e. deformation of the initial atlas to time point t0)
@@ -239,10 +238,6 @@ class meta_registration_model(pl.LightningModule):
                 loss_grad_reg/= 2.0
                 self.log("train_loss_grad_reg", loss_grad_reg, prog_bar=True, on_epoch=True, sync_dist=True)    
                 loss += self.lambda_grad * loss_grad_reg
-
-
-        print('Final Loss:',loss.item())
-
 
 
         # Static version
