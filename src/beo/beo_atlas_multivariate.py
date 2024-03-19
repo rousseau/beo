@@ -56,7 +56,12 @@ class meta_registration_model(pl.LightningModule):
         self.unet_atlas = Unet(n_channels = 1, n_classes = 3, n_features = 32)
         
         self.learn_atlas = False
-        self.learn_dyn = True
+        self.learn_dyn = False
+        self.learn_reg = False
+
+        if self.learn_reg is False:
+            for param in self.unet_reg.parameters():
+                param.requires_grad = False
 
         self.loss = []
         for l in loss:
@@ -106,8 +111,6 @@ class meta_registration_model(pl.LightningModule):
         else:
             atlas_def = atlas_0
             forward_flow_atlas = torch.zeros(flow_shape,device=self.device)
-
-
 
         # Get image pair
         tio_im1, tio_im2 = batch
@@ -332,6 +335,10 @@ if __name__ == '__main__':
     parser.add_argument('--load_unet_reg', help='Input unet model for pairwise registration', type=str, required = False)
     parser.add_argument('--save_unet_reg', help='Output unet model for pairwise registration', type=str, required = False)
 
+    parser.add_argument('--learn-atlas', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--learn-dyn', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--learn-reg', action=argparse.BooleanOptionalAction)
+
     parser.add_argument('--average-atlas', action=argparse.BooleanOptionalAction)
 
     parser.add_argument('--logger', help='Logger name', type=str, required = False, default=None)
@@ -399,7 +406,14 @@ if __name__ == '__main__':
     if args.load_unet_dyn:
         reg_net.unet_dyn.load_state_dict(torch.load(args.load_unet_dyn))
 
+    if args.learn_atlas is not None:
+        reg_net.learn_atlas = True
+    if args.learn_dyn is not None:
+        reg_net.learn_dyn = True
+    if args.learn_reg is not None:
+        reg_net.learn_reg = True
 
+#%%
     trainer_args = {
         'max_epochs' : args.epochs, 
         'strategy' : DDPStrategy(find_unused_parameters=True),
@@ -480,7 +494,6 @@ if __name__ == '__main__':
         atlas_dyn = reg_net.transformer(atlas_0, forward_flow_dyn)
         o = tio.ScalarImage(tensor=atlas_dyn[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
         o.save(args.output+exp_name+'_atlas_init_'+str(w.item())+'.nii.gz')
-
 
     if args.average_atlas:
         # Deform each subject at time point 0
