@@ -530,7 +530,10 @@ if __name__ == '__main__':
             backward_velocity_im = - forward_velocity_im
             backward_flow_im = reg_net.vecint(backward_velocity_im)
 
-            warped_image = reg_net.transformer(image, backward_flow_im)
+            warped_image = reg_net.transformer(image, backward_flow_im) # warped image on atlas at current age
+
+            backward_flow_im = reg_net.vecint(- w * forward_velocity_dyn)
+            warped_image = reg_net.transformer(warped_image, backward_flow_im) # warped image on atlas at time 0
 
             if len(subjects) < 11:
                 o = tio.ScalarImage(tensor=warped_image[0].detach().numpy(), affine=tio.ScalarImage(args.atlas[0]).affine)
