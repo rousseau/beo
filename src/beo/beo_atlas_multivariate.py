@@ -251,6 +251,8 @@ class meta_registration_model(pl.LightningModule):
                 loss += self.lambda_grad * loss_grad_reg
 
 
+        print('Final Loss:',loss.item())
+
 
 
         # Static version
