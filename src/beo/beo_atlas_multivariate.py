@@ -59,8 +59,14 @@ class meta_registration_model(pl.LightningModule):
         self.learn_dyn = False
         self.learn_reg = False
 
+        self.use_dynamics = False
+
         if self.learn_reg is False:
             for param in self.unet_reg.parameters():
+                param.requires_grad = False
+
+        if self.learn_dyn is False:
+            for param in self.unet_dyn.parameters():
                 param.requires_grad = False
 
         self.loss = []
@@ -115,7 +121,7 @@ class meta_registration_model(pl.LightningModule):
         # Get image pair
         tio_im1, tio_im2 = batch
         
-        if self.learn_dyn is True :
+        if self.use_dynamics is True :
             # Get dynamics 
             forward_velocity_dyn = self.unet_dyn(atlas_def)
             backward_velocity_dyn = - forward_velocity_dyn
@@ -335,6 +341,8 @@ if __name__ == '__main__':
     parser.add_argument('--load_unet_reg', help='Input unet model for pairwise registration', type=str, required = False)
     parser.add_argument('--save_unet_reg', help='Output unet model for pairwise registration', type=str, required = False)
 
+    parser.add_argument('--use-dynamics', action=argparse.BooleanOptionalAction)
+
     parser.add_argument('--learn-atlas', action=argparse.BooleanOptionalAction)
     parser.add_argument('--learn-dyn', action=argparse.BooleanOptionalAction)
     parser.add_argument('--learn-reg', action=argparse.BooleanOptionalAction)
@@ -406,11 +414,13 @@ if __name__ == '__main__':
     if args.load_unet_dyn:
         reg_net.unet_dyn.load_state_dict(torch.load(args.load_unet_dyn))
 
-    if args.learn_atlas is not None:
+    if args.use_dynamics:
+        reg_net.use_dynamics = True
+    if args.learn_atlas:
         reg_net.learn_atlas = True
-    if args.learn_dyn is not None:
+    if args.learn_dyn:
         reg_net.learn_dyn = True
-    if args.learn_reg is not None:
+    if args.learn_reg:
         reg_net.learn_reg = True
 
 #%%
@@ -503,7 +513,8 @@ if __name__ == '__main__':
             w = subjects[i].age
             print(w)
             forward_flow_dyn = reg_net.vecint(w * forward_velocity_dyn)
-            atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
+            atlas_dyn = reg_net.transformer(atlas_0, forward_flow_dyn)
+            #atlas_dyn = reg_net.transformer(atlas_def, forward_flow_dyn)
 
             x = torch.cat([atlas_dyn, image], dim=1)
             forward_velocity_im = reg_net.unet_reg(x)
