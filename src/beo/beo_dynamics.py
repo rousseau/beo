@@ -204,7 +204,6 @@ if __name__ == '__main__':
         exp_name += '_' + str(args.lam_l[i])
     exp_name += '_lamm'+str(args.lam_m)
     exp_name += '_lamg'+str(args.lam_g)
-    exp_name += '_ms'+str(args.max_subj)
 
 #%%
     if args.save_unet:
