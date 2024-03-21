@@ -146,7 +146,7 @@ if __name__ == '__main__':
         if row["age"] < args.max and row["age"] > args.min:
             subject = tio.Subject(
                 image_0=tio.ScalarImage(row['image']),
-                image_1=tio.ScalarImage(row['onehot']),
+                #image_1=tio.ScalarImage(row['onehot']),
                 age= a * row["age"] + b
             )
             print(row['image'])
