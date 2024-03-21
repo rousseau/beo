@@ -103,6 +103,8 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--tsv_file', help='tsv file ', type=str, required = True)
     parser.add_argument('--t0', help='Initial time (t0) in week', type=float, required = False, default=25)
     parser.add_argument('--t1', help='Final time (t1) in week', type=float, required = False, default=32)
+    parser.add_argument('--max', help='Maximum age of the subjects in week', type=float, required = False, default=40)
+    parser.add_argument('--min', help='Minimum age of the subjects in week', type=float, required = False, default=10)
 
     parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
@@ -124,9 +126,6 @@ if __name__ == '__main__':
     parser.add_argument('--tensor-cores', action=argparse.BooleanOptionalAction)
     parser.add_argument('--n_gpus', help='Number of gpus (default is 0, meaning all available gpus)', type=int, required = False, default=0)
 
-    parser.add_argument('--max_subj', help='Max number of subjects (for progressive learning)', type=int, required = False, default=0)
-
-
     args = parser.parse_args()
 
     if args.tensor_cores:
@@ -144,16 +143,14 @@ if __name__ == '__main__':
 
     subjects = []
     for index, row in df.iterrows():
-        subject = tio.Subject(
-            image_0=tio.ScalarImage(row['image']),
-            image_1=tio.ScalarImage(row['onehot']),
-            age= a * row["age"] + b
-        )
-        print(row['image'])
-        subjects.append(subject)
-
-    if args.max_subj > 0:
-        subjects = subjects[0:args.max_subj]
+        if row["age"] < args.max and row["age"] > args.min:
+            subject = tio.Subject(
+                image_0=tio.ScalarImage(row['image']),
+                image_1=tio.ScalarImage(row['onehot']),
+                age= a * row["age"] + b
+            )
+            print(row['image'])
+            subjects.append(subject)
 
     training_set = tio.SubjectsDataset(subjects)    
     training_loader = torch.utils.data.DataLoader(training_set, batch_size=1, shuffle=True, num_workers=8, pin_memory=True)
