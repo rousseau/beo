@@ -500,7 +500,11 @@ if __name__ == '__main__':
     o.save(args.output+exp_name+'_atlas_def.nii.gz')
 
     # Compute atlas at different time points (-1, -0.5, 0, 0.5, 1)
-    weights = torch.Tensor([-1,-0.5,0,0.5,1]).to(reg_net.device)
+    #weights = torch.Tensor([-1,-0.5,0,0.5,1]).to(reg_net.device)
+    # Possibility to sample an age range : (21-36) weeks
+    weights = torch.linspace(start=21, end=36, steps=16).to(reg_net.device)
+    # Convert to normalized ages
+    weights = a * weights + b
     forward_velocity_dyn = reg_net.unet_dyn(atlas_def)
     backward_velocity_dyn = - forward_velocity_dyn
 
