@@ -198,6 +198,7 @@ if __name__ == '__main__':
 
 #%%
     exp_name = '_'+str(args.t0)+'_'+str(args.t1)
+    exp_name = '_min'+str(args.min)+'_max'+str(args.max)
     exp_name += '_e'+str(args.epochs)
     for i in range(len(args.loss)):
         exp_name += '_'+args.loss[i]
