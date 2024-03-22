@@ -109,7 +109,7 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--atlas', help='Initial Atlas', type=str, action='append', required = True)
 
     parser.add_argument('-e', '--epochs', help='Number of epochs', type=int, required = False, default=1)
-    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=1)
+    parser.add_argument('--accumulate_grad_batches', help='Accumulate grad batches', type=int, required = False, default=4)
 
     parser.add_argument('-l', '--loss', help='Similarity (mse, mae, ncc, lncc)', type=str, action='append', required = True)
     parser.add_argument('--lam_l', help='Lambda loss for image similarity', type=float, action='append', required = True)
@@ -212,15 +212,18 @@ if __name__ == '__main__':
 
     # Inference
     source_data = reg_net.atlas[0].to(reg_net.device)
+    svf = reg_net(source_data)
+
     for i in range(len(subjects)):
         target_subject = training_set[i]     
         target_data = torch.unsqueeze(target_subject.image_0.data,0)  
-        weight = target_subject.age 
-        svf = reg_net(source_data)
+        weight = target_subject.age     
         flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
         o.save(args.output+'_svf_'+str(i+1)+exp_name+'.nii.gz')
+
+        print('Subject',i, 'age', target_subject.age, reg_net.loss[0](warped_source,target_data).item())
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
