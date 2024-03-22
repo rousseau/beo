@@ -221,10 +221,12 @@ if __name__ == '__main__':
         weight = target_subject.age     
         flow = reg_net.vecint(weight*svf)
         warped_source = reg_net.transformer(source_data,flow)
+
+        print('Subject',i, 'age', target_subject.age, reg_net.loss[0](warped_source,target_data).item())
+
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
         o.save(args.output+'_svf_'+str(i+1)+exp_name+'.nii.gz')
 
-        print('Subject',i, 'age', target_subject.age, reg_net.loss[0](warped_source,target_data).item())
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)
     #o.save('source.nii.gz')
