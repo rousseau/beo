@@ -47,11 +47,11 @@ if __name__ == '__main__':
     forward_flow = net.phi_AB_vectorfield
     backward_flow = net.phi_BA_vectorfield
 
-    o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_image.affine)
+    o = tio.ScalarImage(tensor=warped_source[0].detach().cpu().numpy(), affine=target_image.affine)
     o.save(args.output+'_warped.nii.gz')
-    o = tio.ScalarImage(tensor=warped_target[0].detach().numpy(), affine=source_image.affine)   
+    o = tio.ScalarImage(tensor=warped_target[0].detach().cpu().numpy(), affine=source_image.affine)   
     o.save(args.output+'_inverse_warped.nii.gz')
-    o = tio.ScalarImage(tensor=forward_flow[0].detach().numpy(), affine=target_image.affine)   
+    o = tio.ScalarImage(tensor=forward_flow[0].detach().cpu().numpy(), affine=target_image.affine)   
     o.save(args.output+'_warp.nii.gz')
-    o = tio.ScalarImage(tensor=backward_flow[0].detach().numpy(), affine=source_image.affine)   
+    o = tio.ScalarImage(tensor=backward_flow[0].detach().cpu().numpy(), affine=source_image.affine)   
     o.save(args.output+'_inverse_warp.nii.gz')
