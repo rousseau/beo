@@ -8,19 +8,21 @@ import glob
 import argparse
 import tempfile
 import shutil
+import getpass
 import nibabel as nib
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo Fetal Reconstruction')
-    parser.add_argument('-i', '--input', help='Input folder', type=str, required=True)
-    parser.add_argument('-o', '--output', help='Output folder', type=str, required=True)
+    parser.add_argument('-i', '--input', help='Input folder (absolute path)', type=str, required=True)
+    parser.add_argument('-o', '--output', help='Output folder (absolute path)', type=str, required=True)
     parser.add_argument('-k', '--keyword', help='Keyword used to select images (like HASTE ou TrueFISP)', type=str, required=True)
     parser.add_argument('-m', '--masking', help='Masking method (nesvor or niftymic)', type=str, required=False, default='nesvor')
     parser.add_argument('-r', '--recon', help='Reconstruction method (nesvor, niftymic, svrtk, all)', type=str, required=False, default='nesvor')
 
     args = parser.parse_args()
+    username = getpass.getuser() # assuming that the home directory is /home/username
 
-    #Find automatically all images in input directory 
+    #Find automatically all images in input directory (available from the home directory)
     raw_stacks = []
     files = glob.glob(os.path.join(args.input,'*.nii.gz'))
     for f in files:
@@ -32,6 +34,7 @@ if __name__ == '__main__':
     print('Denoising using SCUNet')
     denoised_stacks = []
     for file in raw_stacks:
+        # lines to modify according to the path of the SCUNet model
         cmd_line = 'time python '+os.path.join(home, 'Sync-Exp','SCUNet','main_3dmri.py')
         cmd_line+= ' --model_zoo '+os.path.join(home, 'Sync-Exp','SCUNet','model_zoo')
         cmd_line+= ' -i '+file
@@ -65,7 +68,7 @@ if __name__ == '__main__':
     else:    
         print('Brain masking using niftyMIC')
         cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_segment_fetal_brains '
-        docker_stacks = [s.replace('rousseau','data') for s in denoised_stacks]
+        docker_stacks = [s.replace(username,'data') for s in denoised_stacks]
         docker_masks  = [s.replace('.nii.gz','_mask.nii.gz') for s in docker_stacks]
 
         cmd_os+= ' --filenames '
@@ -119,12 +122,12 @@ if __name__ == '__main__':
         print('Reconstruction using niftymic')
         cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_reconstruct_volume '
         docker_output = args.output
-        docker_output = docker_output.replace('rousseau','data')        
+        docker_output = docker_output.replace(username,'data')        
         cmd_os+= ' --output '+os.path.join(docker_output,prefix+'niftymic_r05.nii.gz')+' --isotropic-resolution 0.5 '
 
         cmd_os+= ' --filenames '
-        docker_stacks = [s.replace('rousseau','data') for s in denoised_stacks]
-        docker_masks = [s.replace('rousseau','data') for s in mask_stacks]
+        docker_stacks = [s.replace(username,'data') for s in denoised_stacks]
+        docker_masks = [s.replace(username,'data') for s in mask_stacks]
 
         for i in docker_stacks:
             cmd_os+= i+' '
@@ -147,8 +150,8 @@ if __name__ == '__main__':
             for f in denoised_stacks:
                 shutil.copy(f, temp_dir)
 
-            svrtk_input = temp_dir.replace('rousseau','data')
-            svrtk_output = args.output.replace('rousseau','data')
+            svrtk_input = temp_dir.replace(username,'data')
+            svrtk_output = args.output.replace(username,'data')
 
             slice_thickness = max(nib.load(denoised_stacks[0]).header['pixdim'])
             print('Slice thickness:',slice_thickness)
@@ -171,8 +174,8 @@ if __name__ == '__main__':
                 # copy the reconstruction file into the temporary directory
                 shutil.copy(recon_file, temp_dir)
 
-                svrtk_input = temp_dir.replace('rousseau','data')
-                svrtk_output = args.output.replace('rousseau','data')
+                svrtk_input = temp_dir.replace(username,'data')
+                svrtk_output = args.output.replace(username,'data')
 
                 cmd_os = 'time docker run --rm  --mount type=bind,source='+home+',target=/home/data  fetalsvrtk/svrtk:general_auto_amd '
                 cmd_os+= 'bash /home/auto-proc-svrtk/scripts/auto-brain-reorientation.sh '+svrtk_input+' '+svrtk_output+' 0.5 1 0'
@@ -192,8 +195,8 @@ if __name__ == '__main__':
                 # copy the reconstruction file into the temporary directory
                 shutil.copy(recon_file, temp_dir)
 
-                bounti_input = temp_dir.replace('rousseau','data')
-                bounti_output = args.output.replace('rousseau','data')
+                bounti_input = temp_dir.replace(username,'data')
+                bounti_output = args.output.replace(username,'data')
 
                 cmd_os = 'time docker run --rm  --mount type=bind,source='+home+',target=/home/data  fetalsvrtk/svrtk:general_auto_amd '
                 cmd_os+= 'bash /home/auto-proc-svrtk/scripts/auto-brain-bounti-segmentation-fetal.sh '+bounti_input+' '+bounti_output
