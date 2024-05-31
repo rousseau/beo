@@ -138,7 +138,7 @@ if __name__ == '__main__':
 
         subject = tio.Subject(
             image_0=tio.ScalarImage(row['image']),
-            image_1=tio.LabelMap(row['onehot'])
+            image_1=tio.ScalarImage(row['onehot'])
         )
         subjects.append(subject) 
 

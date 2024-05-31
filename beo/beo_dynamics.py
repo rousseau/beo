@@ -226,7 +226,17 @@ if __name__ == '__main__':
         print(F.mse_loss(warped_source,target_data).item())
 
         o = tio.ScalarImage(tensor=warped_source[0].detach().numpy(), affine=target_subject.image_0.affine)
-        o.save(args.output+'_svf_'+str(i+1)+exp_name+'.nii.gz')
+        #o.save(args.output+'_svf_'+str(i+1)+exp_name+'.nii.gz')
+
+        o = tio.ScalarImage(tensor=flow[0].detach().numpy(), affine=target_subject.image_0.affine)
+        #o.save(args.output+'_flow_'+str(i+1)+exp_name+'.nii.gz')
+
+        warped_onehot = reg_net.transformer(torch.unsqueeze(target_subject.image_1.data,0),flow)
+        o = tio.ScalarImage(tensor=warped_onehot[0].detach().numpy(), affine=target_subject.image_0.affine)
+        #o.save(args.output+'_onehot_'+str(i+1)+exp_name+'.nii.gz')
+
+        o = tio.ScalarImage(tensor=torch.argmax(warped_onehot,dim=1).detach().numpy(), affine=target_subject.image_0.affine)
+        o.save(args.output+'_labels_'+str(i+1)+exp_name+'.nii.gz')
 
 
     #o = tio.ScalarImage(tensor=inference_subject.source.data.detach().numpy(), affine=inference_subject.source.affine)

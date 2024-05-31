@@ -93,7 +93,7 @@ if __name__ == '__main__':
   #reconstruction using nesvor
   os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
   go = 'nesvor reconstruct --output-volume '+args.output+'/recon/nesvor_'+args.keyword+'_r6.nii.gz --output-resolution 6 --verbose 2 '
-  go+= '--n-levels-bias 1 '
+  go+= '--n-levels-bias 1 --single-precision '
   go+= '--inference-batch-size 2048 --n-inference-samples 512 '
   go+= '--output-model '+args.output+'/recon/nesvor_'+args.keyword+'_model.pt '
   go+= ' --input-stacks '
