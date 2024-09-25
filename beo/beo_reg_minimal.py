@@ -154,9 +154,11 @@ if __name__ == '__main__':
 
     subjects.append(subject) 
 
+    print(subjects)
 
     training_set = tio.SubjectsDataset(subjects,tio.Compose(transforms))    
-    training_loader = torch.utils.data.DataLoader(training_set, batch_size=1)
+    training_loader = tio.SubjectsLoader(training_set, batch_size=1)
+
 #%%
     # get the spatial dimension of the data (3D)
     in_shape = subjects[0].target.shape[1:]     
@@ -183,8 +185,8 @@ if __name__ == '__main__':
     else:    
         trainer_args['logger'] = pl.loggers.TensorBoardLogger(save_dir = 'lightning_logs', name = args.logger)
 
+
     trainer_reg = pl.Trainer(**trainer_args)          
-    
     trainer_reg.fit(reg_net, training_loader)  
     if args.save_unet:
         torch.save(reg_net.unet.state_dict(), args.save_unet)
