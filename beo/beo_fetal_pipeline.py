@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input', help='Input folder (absolute path)', type=str, required=True)
     parser.add_argument('-o', '--output', help='Output folder (absolute path)', type=str, required=True)
     parser.add_argument('-k', '--keyword', help='Keyword used to select images (like HASTE ou TrueFISP)', type=str, required=True)
-    parser.add_argument('-m', '--masking', help='Masking method (nesvor or niftymic)', type=str, required=False, default='nesvor')
+    parser.add_argument('-m', '--masking', help='Masking method (nesvor, niftymic, synthstrip)', type=str, required=False, default='nesvor')
     parser.add_argument('-r', '--recon', help='Reconstruction method (nesvor, niftymic, svrtk, all)', type=str, required=False, default='nesvor')
 
     args = parser.parse_args()
@@ -65,7 +65,7 @@ if __name__ == '__main__':
         print(cmd_line)
         os.system(cmd_line)
 
-    else:    
+    elif args.masking == 'niftymic':    
         print('Brain masking using niftyMIC')
         cmd_os = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_segment_fetal_brains '
         docker_stacks = [s.replace(username,'data') for s in denoised_stacks]
@@ -80,6 +80,15 @@ if __name__ == '__main__':
 
         print(cmd_os)
         os.system(cmd_os)
+
+    else:    
+        print('Brain masking using mri_synthstrip')
+        for file in denoised_stacks:
+            cmd_os = 'mri_synthstrip -i '+os.path.join(args.output, file)
+            cmd_os+= ' -m '+os.path.join(args.output, os.path.basename(file).replace('.nii.gz','_mask.nii.gz'))
+            print(cmd_os)
+            os.system(cmd_os)
+
 
     mask_stacks = [s.replace('.nii.gz','_mask.nii.gz') for s in denoised_stacks]
     prefix = os.path.commonprefix([os.path.basename(s) for s in denoised_stacks])
