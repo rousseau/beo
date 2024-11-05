@@ -4,7 +4,7 @@
 import argparse
 import glob
 import os
-from beo_wrappers import wrapper_scunet, wrapper_masking
+from beo_wrappers import wrapper_scunet, wrapper_masking, wrapper_reconstruction
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo fetal pipeline of one subject')
@@ -29,10 +29,16 @@ if __name__ == '__main__':
     for file in raw_stacks:
         outputfile = os.path.join(args.output, os.path.basename(file).replace('.nii.gz','_denoised.nii.gz'))
         denoised_stacks.append(outputfile)
-        wrapper_scunet(file, outputfile)
+        if not os.path.exists(outputfile):
+            wrapper_scunet(file, outputfile)
 
     mask_stacks = []
     for file in denoised_stacks:
         outputfile = os.path.join(args.output, os.path.basename(file).replace('.nii.gz','_mask.nii.gz'))
         mask_stacks.append(outputfile)
-        wrapper_masking(file, outputfile,method=args.masking)    
+        if not os.path.exists(outputfile):
+            wrapper_masking(file, outputfile,method=args.masking)    
+
+    recon_file = args.output + '/reconstruction_'+args.recon+'.nii.gz'
+    wrapper_reconstruction(denoised_stacks, mask_stacks, recon_file, method=args.recon)
+
