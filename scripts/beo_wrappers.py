@@ -108,9 +108,8 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line += '--bias-field-correction --output-resolution 6 ' 
     cmd_line += '--output-volume '
 
-    prefix = os.path.commonprefix([os.path.basename(s) for s in input])
-    cmd_line += '/outgoing/'+prefix+'nesvor_r6.nii.gz '
-    cmd_line += '--output-model /outgoing/'+prefix+'nesvor.pt '
+    cmd_line += '/outgoing/nesvor_r6.nii.gz '
+    cmd_line += '--output-model /outgoing/model_nesvor.pt '
 
     print(cmd_line)
     os.system(cmd_line)
@@ -122,14 +121,14 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line += 'nesvor sample-volume --inference-batch-size 2048 --verbose 2 --output-volume '
     cmd_line += '/outgoing/'+output_file
     cmd_line += ' --output-resolution 0.5 '
-    cmd_line += '--input-model /outgoing/'+prefix+'nesvor.pt '
+    cmd_line += '--input-model /outgoing/model_nesvor.pt '
 
     print(cmd_line)
     os.system(cmd_line)        
     try:
-        os.remove(os.path.join(output_directory, prefix + 'nesvor_r6.nii.gz'))
+        os.remove(os.path.join(output_directory, 'nesvor_r6.nii.gz'))
     except FileNotFoundError:
-        print(f"File {prefix + 'nesvor_r6.nii.gz'} not found, skipping removal.")
+        print(f"File {'nesvor_r6.nii.gz'} not found, skipping removal.")
 
 def wrapper_niftymic_reconstruction(input: str, mask: str, output: str) -> None:
     print('Reconstruction using niftymic')
@@ -181,3 +180,50 @@ def wrapper_svrtk_reconstruction(input: str, mask: str, output: str) -> None:
         print(cmd_line)
         os.system(cmd_line)  
         os.rename(os.path.join(output_directory,'reo-SVR-output-brain.nii.gz'), os.path.join(output_directory,output_file))  
+
+### SVRTK wrappers
+
+def wrapper_svrtk_reorientation(input, output) -> None:
+    home = expanduser("~")
+    username = getpass.getuser() # assuming that the home directory is /home/username
+    input_file = os.path.basename(input)
+    output_directory = os.path.dirname(output)
+    output_file = os.path.basename(output)
+
+    # create a temporary directory to store the input files for svrtk
+    with tempfile.TemporaryDirectory(dir=home) as temp_dir:
+        # copy the reconstruction file into the temporary directory
+        shutil.copy(input, temp_dir)
+
+        svrtk_input = temp_dir.replace(username,'data')
+        svrtk_output = output_directory.replace(username,'data')
+
+        cmd_line = 'time docker run --rm  --mount type=bind,source='+home+',target=/home/data  fetalsvrtk/svrtk:general_auto_amd '
+        cmd_line+= 'bash /home/auto-proc-svrtk/scripts/auto-brain-reorientation.sh '+svrtk_input+' '+svrtk_output+' 0.5 1 0'
+        print(cmd_line)
+        os.system(cmd_line)  
+
+    os.rename(os.path.join(output_directory,input_file.replace('.nii.gz','_0_reo.nii.gz')), os.path.join(output_directory,output_file))        
+
+def wrapper_svrtk_segmentation(input, output) -> None:
+    home = expanduser("~")
+    username = getpass.getuser() # assuming that the home directory is /home/username
+    input_file = os.path.basename(input)
+    output_directory = os.path.dirname(output)
+    output_file = os.path.basename(output)
+
+    #create a temporary folder for bounti
+    with tempfile.TemporaryDirectory(dir=home) as temp_dir:
+        # copy the reconstruction file into the temporary directory
+        shutil.copy(input, temp_dir)
+
+        bounti_input = temp_dir.replace(username,'data')
+        bounti_output = output_directory.replace(username,'data')
+
+        cmd_line = 'time docker run --rm  --mount type=bind,source='+home+',target=/home/data  fetalsvrtk/svrtk:general_auto_amd '
+        cmd_line+= 'bash /home/auto-proc-svrtk/scripts/auto-brain-bounti-segmentation-fetal.sh '+bounti_input+' '+bounti_output
+        print(cmd_line)
+        os.system(cmd_line)        
+
+    os.rename(os.path.join(output_directory,input_file.replace('.nii.gz','-mask-bet-1.nii.gz')), os.path.join(output_directory,output_file.replace('.nii.gz','-mask.nii.gz')))        
+    os.rename(os.path.join(output_directory,input_file.replace('.nii.gz','-mask-brain_bounti-19.nii.gz')), os.path.join(output_directory,output_file.replace('.nii.gz','-bounti.nii.gz')))        

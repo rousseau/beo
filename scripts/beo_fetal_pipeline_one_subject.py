@@ -4,7 +4,7 @@
 import argparse
 import glob
 import os
-from beo_wrappers import wrapper_scunet, wrapper_masking, wrapper_reconstruction
+from beo_wrappers import wrapper_scunet, wrapper_masking, wrapper_reconstruction, wrapper_svrtk_reorientation, wrapper_svrtk_segmentation
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Beo fetal pipeline of one subject')
@@ -25,6 +25,7 @@ if __name__ == '__main__':
     print('List of input raw stacks:')    
     print(raw_stacks) 
 
+    # DENOISING
     denoised_stacks = []
     for file in raw_stacks:
         outputfile = os.path.join(args.output, os.path.basename(file).replace('.nii.gz','_denoised.nii.gz'))
@@ -32,6 +33,7 @@ if __name__ == '__main__':
         if not os.path.exists(outputfile):
             wrapper_scunet(file, outputfile)
 
+    # MASKING
     mask_stacks = []
     for file in denoised_stacks:
         outputfile = os.path.join(args.output, os.path.basename(file).replace('.nii.gz','_mask.nii.gz'))
@@ -39,6 +41,16 @@ if __name__ == '__main__':
         if not os.path.exists(outputfile):
             wrapper_masking(file, outputfile,method=args.masking)    
 
+    # RECONSTRUCTION
     recon_file = args.output + '/reconstruction_'+args.recon+'.nii.gz'
-    wrapper_reconstruction(denoised_stacks, mask_stacks, recon_file, method=args.recon)
+    if not os.path.exists(recon_file):
+        wrapper_reconstruction(denoised_stacks, mask_stacks, recon_file, method=args.recon)
 
+    # REORIENTATION
+    reo_file = args.output + '/reconstruction_'+args.recon+'_reo.nii.gz'
+    if not os.path.exists(reo_file):
+        wrapper_svrtk_reorientation(recon_file, reo_file)
+
+    # SEGMENTATION
+    seg_file = args.output + '/segmentation_'+args.recon+'.nii.gz'
+    wrapper_svrtk_segmentation(reo_file, seg_file)
