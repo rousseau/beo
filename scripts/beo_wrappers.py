@@ -137,7 +137,7 @@ def wrapper_niftymic_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line = 'docker run -it --rm --mount type=bind,source='+home+',target=/home/data renbem/niftymic niftymic_reconstruct_volume '
     docker_output = os.path.dirname(output)
     docker_output = docker_output.replace(username,'data')        
-    cmd_line+= ' --output '+os.path.join(docker_output,output)+' --isotropic-resolution 0.5 '
+    cmd_line+= ' --output '+os.path.join(docker_output,os.path.basename(output))+' --isotropic-resolution 0.5 '
 
     cmd_line+= ' --filenames '
     docker_stacks = [s.replace(username,'data') for s in input]
