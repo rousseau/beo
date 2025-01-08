@@ -12,7 +12,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', help='Output folder (absolute path)', type=str, required=True)
     parser.add_argument('-k', '--keyword', help='Keyword used to select images (like HASTE ou TrueFISP)', type=str, required=True)
     parser.add_argument('-m', '--masking', help='Masking method (nesvor, niftymic, synthstrip)', type=str, required=False, default='nesvor')
-    parser.add_argument('-r', '--recon', help='Reconstruction method (nesvor, niftymic, svrtk, all)', type=str, required=False, default='nesvor')
+    parser.add_argument('-r', '--recon', help='Reconstruction method (nesvor, niftymic, svrtk)', type=str, required=False, default='nesvor')
 
     args = parser.parse_args()
  
@@ -24,6 +24,10 @@ if __name__ == '__main__':
             raw_stacks.append(f)
     print('List of input raw stacks:')    
     print(raw_stacks) 
+
+    # check is output directory exists
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
 
     # DENOISING
     denoised_stacks = []
