@@ -44,6 +44,11 @@ if __name__ == '__main__':
     if len(lst_imgs) % nb_img_batch != 0:
         n_batch += 1
 
+    # Torch io transforms for rescaling and resizing.
+    rescale = tio.RescaleIntensity(out_min_max=(0, 1))
+    resize = tio.Resize(n_size)
+    transforms = tio.Compose([rescale, resize])
+
     for b in range(n_batch):
         grids = []
         print("Batch", b)
@@ -54,9 +59,6 @@ if __name__ == '__main__':
             else:
                 print(str(i) + " : " + lst_imgs[b * nb_img_batch + i].split("/")[-1].split('.')[0])
                 img = tio.ScalarImage(lst_imgs[n])[tio.DATA]
-                rescale = tio.RescaleIntensity(out_min_max=(0, 1))
-                resize = tio.Resize(n_size)
-                transforms = tio.Compose([rescale, resize])
                 img = transforms(img)
                 slice = TF.rotate(img[..., int(img.shape[-1] / 2)], 90, expand=True)
             grids.append(slice)
