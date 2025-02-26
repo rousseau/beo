@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     # Torch io transforms for rescaling and resizing.
     rescale = tio.RescaleIntensity(out_min_max=(0, 1))
-    resize = tio.Resize(n_size)
+    resize = tio.CropOrPad(n_size)
     transforms = tio.Compose([rescale, resize])
 
     for b in range(n_batch):
