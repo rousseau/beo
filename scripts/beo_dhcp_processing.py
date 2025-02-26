@@ -1,0 +1,35 @@
+import pandas as pd
+import argparse
+import os
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Processing of dHCP fetal dataset')
+    parser.add_argument('-i', '--input', help='Input tsv dhcp file', type=str, required = True)
+    parser.add_argument('-b', '--bids_dir', help='Source BIDS directory', type=str, required = True)
+    parser.add_argument('-o', '--output_bids_dir', help='Ouput new derivatives BIDS directory', type=str, required = True)    
+    args = parser.parse_args()    
+
+    # Read the tsv data file
+    df = pd.read_csv(args.input, sep='\t')
+
+    # Check if the output directory exists
+    if not os.path.exists(args.output_bids_dir):
+        os.makedirs(args.output_bids_dir)
+
+    # Loop over the subjects
+    for index, row in df.iterrows():
+        subject = row['subject_id']
+        session = row['session_id']
+        data_path = os.path.join(args.bids_dir, 'derivatives', subject, session, 'anat')
+        image_filename = subject+'_'+session+'_desc-restore_T2w.nii.gz'   
+
+        # Create directory for the subject
+        output_subject_dir = os.path.join(args.output_bids_dir, subject, session, 'anat')
+        if not os.path.exists(output_subject_dir):
+            os.makedirs(output_subject_dir)
+
+        # Remove bias field using N4BiasFieldCorrection
+        output_filename = os.path.join(output_subject_dir, os.path.basename(image_filename).replace('.nii.gz','_N4.nii.gz'))    
+        cmd_line = 'N4BiasFieldCorrection -d 3 -i '+os.path.join(data_path, image_filename)+' -o '+output_filename
+        print(cmd_line)
+        os.system(cmd_line)
