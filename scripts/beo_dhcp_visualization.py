@@ -1,3 +1,4 @@
+import torch
 import torchvision
 import matplotlib.pyplot as plt
 import argparse
@@ -19,6 +20,9 @@ if __name__ == '__main__':
     # fmriresults01.txt : derivatives (fetal and neonatal)
     # image03.txt : raw (fetal and neonatal)
     df = pd.read_csv(args.input, sep='\t')
+
+    # Sorting by age in ascending order
+    df = df.sort_values(by=['scan_age'])
 
     print('Number of subjects :'+str(len(df['subject_id'])))    
     lst_imgs = []
