@@ -14,7 +14,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize dHCP dataset')
     parser.add_argument('-i', '--input', help='Input tsv dhcp file', type=str, required = True)
     parser.add_argument('-b', '--bids_dir', help='BIDS directory', type=str, required = True)
-    parser.add_argument('-k', '--keyword', help='Keyword used to select images (like desc-restore_T2w)', type=str, required=False, default='desc-restore_T2w')
     args = parser.parse_args()
 
     # dHCP dataset
@@ -30,8 +29,8 @@ if __name__ == '__main__':
     for index, row in df.iterrows():
         subject = row['subject_id']
         session = row['session_id']
-        data_path = os.path.join(args.bids_dir, subject, session, 'anat')
-        image_filename = subject+'_'+session+'_'+args.keyword+'.nii.gz'   
+        data_path = os.path.join(args.bids_dir,'derivatives', subject, session, 'anat')
+        image_filename = subject+'_'+session+'_desc-restore_T2w.nii.gz'   
         lst_imgs.append(os.path.join(data_path, image_filename))
     print('Number of images :'+str(len(lst_imgs)))
 
@@ -47,7 +46,7 @@ if __name__ == '__main__':
 
     # Torch io transforms for rescaling and resizing.
     rescale = tio.RescaleIntensity(out_min_max=(0, 1))
-    resize = tio.CropOrPad(n_size)
+    resize = tio.Resize(n_size)
     transforms = tio.Compose([rescale, resize])
 
     for b in range(n_batch):
