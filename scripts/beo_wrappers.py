@@ -101,9 +101,9 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line += 'junshenxu/nesvor '
     cmd_line += 'nesvor reconstruct '
     for file in input:
-        cmd_line += '--input-stacks /outgoing/' + os.path.basename(file) + ' '
+        cmd_line += '--input-stacks /incoming/' + os.path.basename(file) + ' '
     for mask_stack in mask:
-        cmd_line += '--stack-masks /outgoing/' + os.path.basename(mask_stack) + ' '
+        cmd_line += '--stack-masks /incoming/' + os.path.basename(mask_stack) + ' '
 
     cmd_line += '--bias-field-correction --output-resolution 6 ' 
     cmd_line += '--output-volume '
