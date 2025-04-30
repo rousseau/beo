@@ -100,15 +100,21 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line += '-v ' + output_directory + ':/outgoing:rw '
     cmd_line += 'junshenxu/nesvor '
     cmd_line += 'nesvor reconstruct '
+
+    cmd_line += '--input-stacks '
     for file in input:
-        cmd_line += '--input-stacks /incoming/' + os.path.basename(file) + ' '
+        cmd_line += '/incoming/' + os.path.basename(file) + ' '
+    cmd_line += '--stack-masks '       
     for mask_stack in mask:
-        cmd_line += '--stack-masks /incoming/' + os.path.basename(mask_stack) + ' '
+        cmd_line += '/incoming/' + os.path.basename(mask_stack) + ' '
 
-    cmd_line += '--bias-field-correction --output-resolution 6 ' 
+    #cmd_line += '--bias-field-correction '
+    cmd_line += ' --registration svort '
+
+    cmd_line += '--output-resolution 6 '
     cmd_line += '--output-volume '
-
     cmd_line += '/outgoing/nesvor_r6.nii.gz '
+    
     cmd_line += '--output-model /outgoing/model_nesvor.pt '
 
     print(cmd_line)
@@ -125,6 +131,7 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
 
     print(cmd_line)
     os.system(cmd_line)        
+
     try:
         os.remove(os.path.join(output_directory, 'nesvor_r6.nii.gz'))
     except FileNotFoundError:
