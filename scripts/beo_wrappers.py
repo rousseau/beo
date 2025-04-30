@@ -110,13 +110,10 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
 
     #cmd_line += '--bias-field-correction '
     cmd_line += ' --registration svort '
-
     cmd_line += '--output-resolution 6 '
     cmd_line += '--output-volume '
     cmd_line += '/outgoing/nesvor_r6.nii.gz '
-    
     cmd_line += '--output-model /outgoing/model_nesvor.pt '
-
     print(cmd_line)
     os.system(cmd_line)
 
@@ -128,7 +125,6 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     cmd_line += '/outgoing/'+output_file
     cmd_line += ' --output-resolution 0.5 '
     cmd_line += '--input-model /outgoing/model_nesvor.pt '
-
     print(cmd_line)
     os.system(cmd_line)        
 
