@@ -92,7 +92,13 @@ def wrapper_reconstruction(input: str, mask: str, output: str, method: str) -> N
 
 def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
     print('Reconstruction using nesvor')
-    input_directory = os.path.dirname(input[0])
+
+    # Extract the common path between stack_directory and mask_directory
+    input_directory = os.path.commonpath([os.path.dirname(input[0]), os.path.dirname(mask[0])])
+    # Keep only the part of stack_directory that is different from input_directory
+    stack_directory = os.path.relpath(os.path.dirname(input[0]), input_directory)
+    mask_directory = os.path.relpath(os.path.dirname(mask[0]), input_directory)
+
     output_directory = os.path.dirname(output)
     output_file = os.path.basename(output)
     cmd_line = 'time docker run --rm --gpus all --ipc=host '
@@ -103,10 +109,10 @@ def wrapper_nesvor_reconstruction(input: str, mask: str, output: str) -> None:
 
     cmd_line += '--input-stacks '
     for file in input:
-        cmd_line += '/incoming/' + os.path.basename(file) + ' '
+        cmd_line += '/incoming/' + os.path.join(stack_directory, os.path.basename(file)) + ' '
     cmd_line += '--stack-masks '       
     for mask_stack in mask:
-        cmd_line += '/incoming/' + os.path.basename(mask_stack) + ' '
+        cmd_line += '/incoming/' + os.path.join(mask_directory,os.path.basename(mask_stack)) + ' '
 
     #cmd_line += '--bias-field-correction '
     cmd_line += ' --registration svort '
